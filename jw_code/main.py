@@ -1,6 +1,5 @@
 # main.py
 
-
 from control.system_controller import SystemController
 import time
 

@@ -1,48 +1,39 @@
-# gui/gui_main.py
+# control/system_controller.py
 
-import sys
-from PyQt5.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QLabel, QPushButton
-)
 from cv_interface.cv_interface import CVInterface
 from esp_interface.esp_interface import ESPInterface
 
-class ControlGUI(QWidget):
+class SystemController:
     def __init__(self):
-        super().__init__()
-
-        self.setWindowTitle("UR5 Debug Panel")
-        self.setGeometry(100, 100, 400, 200)
-
+        """
+        Initializes the system controller with instances of the CV and ESP interfaces.
+        """
         self.cv = CVInterface()
         self.esp = ESPInterface()
+        self.running = True
 
-        self.layout = QVBoxLayout()
+    def step(self):
+        """
+        Perform a single control step. This method can be called repeatedly in a loop or manually.
+        """
+        joystick_input = self.esp.get("joystick") or "neutral"
+        self.cv.set("last_input", joystick_input)
 
-        self.status_label = QLabel("Status: Idle")
-        self.debug_button = QPushButton("Run Debug")
+        return {
+            "joystick": joystick_input,
+            "cv_status": self.cv.get("last_input"),
+            "status": "step completed"
+        }
 
-        self.debug_button.clicked.connect(self.run_debug)
+    def shutdown(self):
+        """
+        Perform any necessary cleanup on shutdown.
+        This should safely stop any robot actions and close all interfaces.
+        """
+        self.running = False
+        print("[SystemController] Stopping robot safely...")
+        # Example cleanup steps — replace with actual hardware shutdowns
+        # self.esp.send_command("stop")
+        # self.cv.release()
+        print("[SystemController] Shutdown complete.")
 
-        self.layout.addWidget(self.status_label)
-        self.layout.addWidget(self.debug_button)
-        self.setLayout(self.layout)
-
-    def run_debug(self):
-        # Example call to your interfaces
-        self.cv.set("test", "debug_value")
-        self.esp.set("mode", "debug")
-
-        cv_val = self.cv.get("test")
-        esp_val = self.esp.get("mode")
-
-        self.status_label.setText(f"CV: {cv_val}, ESP: {esp_val}")
-
-def launch_gui():
-    app = QApplication(sys.argv)
-    window = ControlGUI()
-    window.show()
-    sys.exit(app.exec_())
-
-if __name__ == "__main__":
-    launch_gui()

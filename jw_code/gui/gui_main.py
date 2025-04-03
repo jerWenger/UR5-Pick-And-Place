@@ -1,7 +1,11 @@
+# gui/gui_main.py
+
 import sys
+import signal
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QLabel, QPushButton
 )
+from PyQt5.QtCore import QTimer
 from control.system_controller import SystemController
 
 class ControlGUI(QWidget):
@@ -34,11 +38,30 @@ class ControlGUI(QWidget):
         self.system.shutdown()
         self.status_label.setText("System shutdown.")
 
+    def closeEvent(self, event):
+        print("[GUI] Window closed. Running system shutdown...")
+        self.system.shutdown()
+        event.accept()
+
 
 def launch_gui():
     app = QApplication(sys.argv)
     window = ControlGUI()
     window.show()
+
+    # Handle SIGINT (Ctrl+C) to shut down system and exit cleanly
+    def handle_sigint(*args):
+        print("[GUI] SIGINT received. Shutting down...")
+        window.shutdown_system()
+        window.close()
+
+    signal.signal(signal.SIGINT, handle_sigint)
+
+    # Optional: QTimer to keep interpreter responsive to SIGINT
+    timer = QTimer()
+    timer.start(100)
+    timer.timeout.connect(lambda: None)
+
     sys.exit(app.exec_())
 
 if __name__ == "__main__":
