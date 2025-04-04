@@ -3,16 +3,37 @@
 from esp_interface.esp_interface import ESPInterface
 
 def test_esp():
-    esp = ESPInterface()
+    
+    #Test connect
+    try:
+        esp = ESPInterface('/dev/ttyACM0')
+    except Exception as e:
+        print("Cannot connect to ESP32:" + e)
+        exit
 
-    # Test setting and getting
-    esp.set("status", "ready")
-    assert esp.get("status") == "ready", "Getter/Setter failed for ESPInterface"
+    # Test getter method
+    assert esp.get_baud() == 115200
+    
+    #Test read
+    try:
+        got_data, data = esp.read_serial()
+        print("ESP Data: " + data)
+    except Exception as e:
+        print("Could not read esp data: " + e)
 
-    # Test aux function
-    esp.aux_function()
+    #Test write
+    try:
+        esp.write_serial([2.1,34.56,100.0234])
+    except Exception as e:
+        print("Could not write data to esp: " + e)
 
-    print("ESPInterface tests passed.")
+    #Test close
+    try:
+        esp.close()
+    except Exception as e:
+        print("Could not close esp connection: " + e)
+
+    print("ESP interface test complete.")
 
 if __name__ == "__main__":
     test_esp()
