@@ -14,21 +14,36 @@ def test_esp():
         print("Cannot connect to ESP32:" + e)
         exit()
 
-    while (True):
+    last_send_time = time.time()
+    last_print_time = time.time()
+    send_interval = 0.5   # seconds between sending data
+    print_interval = 0.5  # seconds between prints
+
+    state = 0  # Tracks which state we're sending
+
+    while True:
         got_data, data = esp.read_serial()
-        print(got_data)
-        print(data)
 
-        if (counter % 3):
-            esp.write_serial(1,0)
-        elif (counter % 2):
-            esp.write_serial(0,1)
-        else:
-            esp.write_serial(0,0)
-            
-        time.sleep(1)
+        current_time = time.time()
 
-        counter += 1
+        # Print data at intervals
+        if current_time - last_print_time >= print_interval:
+            print(data)
+            last_print_time = current_time
+
+        # Send commands at intervals
+        if current_time - last_send_time >= send_interval:
+            if state == 0:
+                esp.write_serial(1,0)
+            elif state == 1:
+                esp.write_serial(0,1)
+            else:
+                esp.write_serial(0,0)
+
+            state = (state + 1) % 3  # Cycle through 0, 1, 2
+            last_send_time = current_time
+
+        time.sleep(0.01)  # Small sleep to prevent 100% CPU usage
         
     
 
