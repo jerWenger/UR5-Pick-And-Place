@@ -2,31 +2,46 @@
 #include "util.h"
 #include "robot_drive.h"
 
-// TODO: Initialize motors, encoders, and PID controllers.
-// Kp, Ki, Kd, tau have all been defined in robot_drive.h, so you may use them here.
-// Hint: Each motor-encoder pair needs its own PID controller.
-
-// TODO: Initialize setpoints, velocities, and control efforts.
+int autonomous_pickup_state = 0;
+int autonomous_thrower_state = 0;
+bool freshLaptopData = false;
 
 void setup() {
 
     Serial.begin();
 
     setupWireless();
-
 }
 
 void loop() {
+    if (Serial.available() > 0){
+        String incoming = Serial.readStringUntil('\n');
+        incoming.trim();
+
+        int commaIndex = incoming.indexOf(',');
+        if (commaIndex != -1){
+            String pickupStr = incoming.substring(0, commaIndex);
+            String throwerStr = incoming.substring(commaIndex + 1);
+
+            autonomous_pickup_state = pickupStr.toInt();
+            autonomous_thrower_state = throwerStr.toInt();
+            freshLaptopData = true;
+        }
+    }
 
     // Update setpoint at 50Hz
     EVERY_N_MILLIS(5) {
         // Flag that checks if there is a new message received
-        if (freshWirelessData) {
-            // TODO: Set the setpoints here.
-            // For driving forward, set all of them to 2.
-            // For driving via joystick, set them to be
-            // dependent on joystick.x and joystick.y.
+        if (freshWirelessData || freshLaptopData) {
+            if (dual_joystick.control_state == 0){
+                //we are in joystick mode
 
+            }
+            else if (dual_joystick.control_state == 1){
+                //we are in autonomous mode
+                
+            }
+           
         }
         // Note: Do not place a delay here.
     }

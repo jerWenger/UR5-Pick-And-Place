@@ -77,24 +77,26 @@ class ESPInterface:
             return False, self.data
 
 
-    def write_serial(self, data_to_write):
+    def write_serial(self, pickup_state, thrower_state):
         """
-        Method for writing to the connected ESP32
+        Method for writing pickup and thrower states to the connected ESP32.
 
-        Input: self, data_to_write - a list of floats to be sent to the ESP32
+        Input:
+            pickup_state - int (0 or 1)
+            thrower_state - int (0 or 1)
 
-        Returns: Boolean - True if data was written to the ESP32. False if otherwise
+        Returns:
+            Boolean - True if data was written to the ESP32, False otherwise
         """
 
         try:
-            cmd_string = ""
-            for data in data_to_write:
-                cmd_string += str(data) + ","
-
-            self.serial_port.write(cmd_string[:-1])
+            # Make sure they are integers
+            cmd_string = f"{int(pickup_state)},{int(thrower_state)}\n"
+            self.serial_port.write(cmd_string.encode('utf-8'))
+            print(f"Writing to ESP32: {cmd_string.strip()}") 
             return True
-        except:
-            print("Failed to write serial data to the ESP32")
+        except Exception as e:
+            print(f"Failed to write serial data to the ESP32: {e}")
             return False
 
     def disconnect(self):
