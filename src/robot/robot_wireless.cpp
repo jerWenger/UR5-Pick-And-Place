@@ -3,12 +3,12 @@
 #include <WiFi.h>
 #include "wireless.h"
 
-joystickData joystick;
+ourControllerData dual_joystick;
 
 bool freshWirelessData = false;
 
 void onDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
-    memcpy(&joystick, incomingData, sizeof(joystick));
+    memcpy(&dual_joystick, incomingData, sizeof(dual_joystick));
     freshWirelessData = true;
     // Serial.printf("JOYSTICK: X %d   Y %d\n", joystick.x, joystick.y);
 }
@@ -30,6 +30,11 @@ void setupWireless(){
     // ESP-NOW Setup Complete
 
     // Default the joystick values
-    joystick.x = 0;
-    joystick.y = 0;
+    dual_joystick.x = 0;
+    dual_joystick.y = 0;
+    dual_joystick.z = 0;
+    dual_joystick.t = 0;
+    dual_joystick.control_state = 0;
+    dual_joystick.pickup_state = 0;
+    dual_joystick.thrower_state = 0;
 }

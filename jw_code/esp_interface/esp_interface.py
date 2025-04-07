@@ -58,30 +58,24 @@ class ESPInterface:
 
         Input: self
 
-        Returns: Boolean, Data. A boolean True if the data was successfully read or False if it failed. Data: a list of float values from the ESP32
+        Returns: Boolean, Data. A boolean True if new data was successfully read, or False otherwise.
+             Data: a list of float values from the ESP32 or the last read values.
         """
         try:
-            # We recommend moving code outside of the try block for testing.
             if self.serial_port.in_waiting > 0:
-                esp32_output = str(self.serial_port.readline()) # The ESP32 output should be a series of values seperated by commas and terminated by "\n", e.g. "1,2,3,4,\n".
-                                                           # This termination occurs automatically if you use Serial.println();
-                
-                esp32_output = esp32_output[2:-3]
-                vals = esp32_output.split(",") # Split into a list of strings
-                print(vals) # Useful for debugging
-                
-                for i in range(len(self.data)):
-                    self.data[i] = float(vals[i])
-                
-                print(self.data)
-                self.serial_port.reset_input_buffer()
-            else:
-                time.sleep(0.00101) # Sleep for at least 1 ms to give the loop a chance to rest
+                esp32_output = self.serial_port.readline().decode('utf-8').strip()
+                vals = esp32_output.split(",")  # Split into a list of strings
+                print(vals)  # Debugging output
 
-            return True, self.data
-        except:
-            print("Failed to read serial data from ESP32")
+                self.data = [float(val) for val in vals]
+                return True, self.data
+            else:
+                # No new data, but return previous data
+                return True, self.data
+        except Exception as e:
+            print(f"Failed to read serial data from ESP32: {e}")
             return False, self.data
+
 
     def write_serial(self, data_to_write):
         """
