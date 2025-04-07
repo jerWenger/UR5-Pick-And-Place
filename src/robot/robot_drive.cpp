@@ -2,15 +2,23 @@
 #include "util.h"
 #include "robot_drive.h"
 
+#define VACUUM_PIN 1
+#define PURGE_PIN 3
+#define SOLENOID_PIN 5
+
 int autonomous_pickup_state = 0;
 int autonomous_thrower_state = 0;
 bool freshLaptopData = false;
+bool laptopDataReceived = false;
 
 void setup() {
 
     Serial.begin();
-
     setupWireless();
+
+    pinMode(VACUUM_PIN, OUTPUT);
+    pinMode(PURGE_PIN, OUTPUT);
+    pinMode(SOLENOID_PIN, OUTPUT);
 }
 
 void loop() {
@@ -26,6 +34,7 @@ void loop() {
             autonomous_pickup_state = pickupStr.toInt();
             autonomous_thrower_state = throwerStr.toInt();
             freshLaptopData = true;
+            laptopDataReceived = true;
         }
     }
 
@@ -35,12 +44,56 @@ void loop() {
         if (freshWirelessData || freshLaptopData) {
             if (dual_joystick.control_state == 0){
                 //we are in joystick mode
+                if (dual_joystick.pickup_state == 1){
+                    //pickup
+                   digitalWrite(VACUUM_PIN, HIGH);
+                   digitalWrite(PURGE_PIN, LOW);
+                   digitalWrite(SOLENOID_PIN, LOW); 
+                }
+                else if (dual_joystick.thrower_state == 1){
+                    //throw
+                    digitalWrite(VACUUM_PIN, LOW);
+                    digitalWrite(PURGE_PIN, HIGH);
+                    digitalWrite(SOLENOID_PIN, HIGH);
+                }
+                else{
+                    //drop
+                    digitalWrite(VACUUM_PIN, LOW);
+                    digitalWrite(PURGE_PIN, HIGH);
+                    digitalWrite(SOLENOID_PIN, LOW);
+                }
 
             }
-            else if (dual_joystick.control_state == 1){
+            else if ((dual_joystick.control_state == 1) && (laptopDataReceived)){
                 //we are in autonomous mode
-                
+                if (autonomous_pickup_state == 1){
+                    //pickup
+                   digitalWrite(VACUUM_PIN, HIGH);
+                   digitalWrite(PURGE_PIN, LOW);
+                   digitalWrite(SOLENOID_PIN, LOW); 
+                }
+                else if (autonomous_thrower_state == 1){
+                    //throw
+                    digitalWrite(VACUUM_PIN, LOW);
+                    digitalWrite(PURGE_PIN, HIGH);
+                    digitalWrite(SOLENOID_PIN, HIGH);
+                }
+                else{
+                    //drop
+                    digitalWrite(VACUUM_PIN, LOW);
+                    digitalWrite(PURGE_PIN, HIGH);
+                    digitalWrite(SOLENOID_PIN, LOW);
+                }
             }
+            else{
+                //something is broken drop state
+                digitalWrite(VACUUM_PIN, LOW);
+                digitalWrite(PURGE_PIN, HIGH);
+                digitalWrite(SOLENOID_PIN, LOW);
+            }
+
+            freshWirelessData = false;
+            freshLaptopData = false;
            
         }
         // Note: Do not place a delay here.
