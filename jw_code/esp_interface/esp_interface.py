@@ -65,7 +65,7 @@ class ESPInterface:
             if self.serial_port.in_waiting > 0:
                 esp32_output = self.serial_port.readline().decode('utf-8').strip()
                 vals = esp32_output.split(",")  # Split into a list of strings
-                print(vals)  # Debugging output
+                #print(vals)  # Debugging output
 
                 self.data = [float(val) for val in vals]
                 return True, self.data

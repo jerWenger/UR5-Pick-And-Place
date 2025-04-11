@@ -48,19 +48,19 @@ void loop() {
                     //pickup
                    digitalWrite(VACUUM_PIN, HIGH);
                    digitalWrite(PURGE_PIN, LOW);
-                   digitalWrite(SOLENOID_PIN, LOW); 
+                   digitalWrite(SOLENOID_PIN, HIGH); 
                 }
                 else if (dual_joystick.thrower_state == 1){
                     //throw
                     digitalWrite(VACUUM_PIN, LOW);
                     digitalWrite(PURGE_PIN, HIGH);
-                    digitalWrite(SOLENOID_PIN, HIGH);
+                    digitalWrite(SOLENOID_PIN, LOW);
                 }
                 else{
                     //drop
                     digitalWrite(VACUUM_PIN, LOW);
                     digitalWrite(PURGE_PIN, HIGH);
-                    digitalWrite(SOLENOID_PIN, LOW);
+                    digitalWrite(SOLENOID_PIN, HIGH);
                 }
 
             }
@@ -70,26 +70,26 @@ void loop() {
                     //pickup
                    digitalWrite(VACUUM_PIN, HIGH);
                    digitalWrite(PURGE_PIN, LOW);
-                   digitalWrite(SOLENOID_PIN, LOW); 
+                   digitalWrite(SOLENOID_PIN, HIGH); 
                 }
                 else if (autonomous_thrower_state == 1){
                     //throw
                     digitalWrite(VACUUM_PIN, LOW);
                     digitalWrite(PURGE_PIN, HIGH);
-                    digitalWrite(SOLENOID_PIN, HIGH);
+                    digitalWrite(SOLENOID_PIN, LOW);
                 }
                 else{
                     //drop
                     digitalWrite(VACUUM_PIN, LOW);
                     digitalWrite(PURGE_PIN, HIGH);
-                    digitalWrite(SOLENOID_PIN, LOW);
+                    digitalWrite(SOLENOID_PIN, HIGH);
                 }
             }
             else{
                 //something is broken drop state
                 digitalWrite(VACUUM_PIN, LOW);
                 digitalWrite(PURGE_PIN, HIGH);
-                digitalWrite(SOLENOID_PIN, LOW);
+                digitalWrite(SOLENOID_PIN, HIGH);
             }
 
             freshWirelessData = false;
