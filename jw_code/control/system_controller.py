@@ -24,7 +24,7 @@ class SystemController:
         self.running = True
 
         # Autonomous path parameters
-        self.autonomous_path = self.generate_circle_path(radius=0.1, center=[-0.5, -0.3, 0.1], num_points=36)
+        self.autonomous_path = self.generate_circle_path(radius=0.15, center=[0, -0.5, 0.1], num_points=50)
         self.target_index = 0
         self.lookahead_distance = 0.02  # How close before switching to next point
 
@@ -44,7 +44,7 @@ class SystemController:
         return path
     
 
-    def compute_velocity_to_pose(self, current_pose, target_pose, max_speed=0.05):
+    def compute_velocity_to_pose(self, current_pose, target_pose, max_speed=2):
         """
         Compute a velocity vector to move from current pose to target pose.
         """
