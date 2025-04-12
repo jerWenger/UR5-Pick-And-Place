@@ -23,6 +23,73 @@ class SystemController:
         self.pose = self.rtde_r.getActualTCPPose()
         self.running = True
 
+        # Autonomous path parameters
+        self.autonomous_path = self.generate_circle_path(radius=0.1, center=[-0.5, -0.3, 0.1], num_points=36)
+        self.target_index = 0
+        self.lookahead_distance = 0.02  # How close before switching to next point
+
+    def generate_circle_path(self, radius, center, num_points):
+        """
+        Generate a list of (x, y, z) poses forming a circle in the XY plane.
+        """
+        path = []
+        cx, cy, cz = center
+        for i in range(num_points):
+            angle = 2 * np.pi * i / num_points
+            x = cx + radius * np.cos(angle)
+            y = cy + radius * np.sin(angle)
+            z = cz
+            pose = [x, y, z, 0, 0, 0]
+            path.append(pose)
+        return path
+    
+
+    def compute_velocity_to_pose(self, current_pose, target_pose, max_speed=0.05):
+        """
+        Compute a velocity vector to move from current pose to target pose.
+        """
+        current_pos = np.array(current_pose[:3])
+        target_pos = np.array(target_pose[:3])
+        pos_error = target_pos - current_pos
+        distance = np.linalg.norm(pos_error)
+
+        if distance < 1e-4:
+            linear_velocity = np.zeros(3)
+        else:
+            direction = pos_error / distance
+            speed = min(distance, max_speed)
+            linear_velocity = direction * speed
+
+        angular_velocity = [0, 0, 0]  # No orientation changes for now
+
+        return np.concatenate((linear_velocity, angular_velocity)).tolist(), distance
+    
+    def apply_software_limits(self, speed):
+        """
+        Enforces software-defined workspace limits regardless of control mode.
+        """
+        limited_speed = speed.copy()
+
+        # X axis limits
+        if self.pose[0] > -0.3:
+            limited_speed[0] = min(speed[0], 0)
+        elif self.pose[0] < -0.7:
+            limited_speed[0] = max(speed[0], 0)
+
+        # Y axis limits
+        if self.pose[1] > -0.1:
+            limited_speed[1] = min(speed[1], 0)
+        elif self.pose[1] < -0.5:
+            limited_speed[1] = max(speed[1], 0)
+
+        # Z axis limits
+        if self.pose[2] > 0.25:
+            limited_speed[2] = min(speed[2], 0)
+        elif self.pose[2] < 0.06:
+            limited_speed[2] = max(speed[2], 0)
+
+        return limited_speed
+
     def step(self):
         """
         Perform a single control step. This method can be called repeatedly in a loop or manually.
@@ -34,43 +101,25 @@ class SystemController:
         #get joystick data
         self.got_joystick, self.joystick_data = self.joystick.read_serial()
 
+        speed = [0,0,0,0,0,0]
+
         #decide if we are in joystick mode operate accordingly
         if (self.joystick_data[0] == 0):
-            joy_x = self.joystick_data[1] # -1 to 1 centered at 0
-            joy_y = self.joystick_data[2] # -1 to 1 centered at 0
-            joy_z = self.joystick_data[3] # -1 to 1 centered at 0
-            endpoint_omega = self.joystick_data[4] #-1 to 1 cetnered at 0
+            speed[0] = self.joystick_data[1] # X velocity -1 to 1 centered at 0
+            speed[1] = self.joystick_data[2] # Y velocity -1 to 1 centered at 0
+            speed[2] = self.joystick_data[3] # Z velocity -1 to 1 centered at 0
+            speed[5] = self.joystick_data[4] # Omega velocity -1 to 1 cetnered at 0
         elif(self.joystick_data[0] == 1):
-            joy_x = 0
-            joy_y = 0
-            joy_z = 0
-            endpoint_omega = 0
+            # Autonomous mode
+            target_pose = self.autonomous_path[self.target_index]
+            speed, distance = self.compute_velocity_to_pose(self.pose, target_pose)
 
-        speed = [0, 0, 0, 0, 0, 0] # TCP speed commands
+            # If close enough to the target, move to the next one
+            if distance < self.lookahead_distance:
+                self.target_index = (self.target_index + 1) % len(self.autonomous_path)
 
-        # Implement software limits for the robot axes to prevent collisions with the camera pole
-        if self.pose[0] > -0.3:
-            speed[0] = min(joy_x, 0)
-        elif self.pose[0] < -0.7:
-            speed[0] = max(joy_x, 0)
-        else:
-            speed[0] = joy_x
-
-        if self.pose[1] > -0.1:
-            speed[1] = min(joy_y, 0)
-        elif self.pose[1] < -0.5:
-            speed[1] = max(joy_y, 0)
-        else:
-            speed[1] = joy_y
-
-        if self.pose[2] > 0.25: # Prevent collision with conveyor belt
-            speed[2] = min(joy_z, 0)
-        elif self.pose[2] < 0.06:
-            speed[2] = max(joy_z, 0)
-        else:
-            speed[2] = joy_z
-
-        speed[5] = endpoint_omega
+        #safety check
+        speed = self.apply_software_limits(speed)
 
         self.rtde_c.speedL(speed, 2, 0) #send speed data to the UR5
 

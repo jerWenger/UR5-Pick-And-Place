@@ -172,13 +172,13 @@ class ControlGUI(QWidget):
 
         # Update Status Label
         status_text = (
-            "<b>UR5 Joint Positions (Pose)</b><br>"
-            f"Joint 1: {pose[0]:.2f} rad<br>"
-            f"Joint 2: {pose[1]:.2f} rad<br>"
-            f"Joint 3: {pose[2]:.2f} rad<br>"
-            f"Joint 4: {pose[3]:.2f} rad<br>"
-            f"Joint 5: {pose[4]:.2f} rad<br>"
-            f"Joint 6: {pose[5]:.2f} rad<br><br>"
+            "<b>UR5 TCP Pose</b><br>"
+            f"X Position: {pose[0]:.3f} m<br>"
+            f"Y Position: {pose[1]:.3f} m<br>"
+            f"Z Position: {pose[2]:.3f} m<br>"
+            f"Rotation X: {pose[3]:.3f} rad<br>"
+            f"Rotation Y: {pose[4]:.3f} rad<br>"
+            f"Rotation Z: {pose[5]:.3f} rad<br><br>"
 
             "<b>TCP Speed</b><br>"
             f"X Speed: {speed[0]:.2f} m/s<br>"
