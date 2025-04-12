@@ -71,21 +71,21 @@ class SystemController:
         limited_speed = speed.copy()
 
         # X axis limits
-        if self.pose[0] > -0.3:
-            limited_speed[0] = min(speed[0], 0)
-        elif self.pose[0] < -0.7:
+        if self.pose[0] < -0.6:
             limited_speed[0] = max(speed[0], 0)
+        elif self.pose[0] > 0.4:
+            limited_speed[0] = min(speed[0], 0)
 
         # Y axis limits
         if self.pose[1] > -0.1:
             limited_speed[1] = min(speed[1], 0)
-        elif self.pose[1] < -0.5:
+        elif self.pose[1] < -0.8:
             limited_speed[1] = max(speed[1], 0)
 
         # Z axis limits
         if self.pose[2] > 0.25:
             limited_speed[2] = min(speed[2], 0)
-        elif self.pose[2] < 0.06:
+        elif self.pose[2] < -0.06:
             limited_speed[2] = max(speed[2], 0)
 
         return limited_speed
@@ -105,10 +105,10 @@ class SystemController:
 
         #decide if we are in joystick mode operate accordingly
         if (self.joystick_data[0] == 0):
-            speed[0] = self.joystick_data[1] # X velocity -1 to 1 centered at 0
-            speed[1] = self.joystick_data[2] # Y velocity -1 to 1 centered at 0
-            speed[2] = self.joystick_data[3] # Z velocity -1 to 1 centered at 0
-            speed[5] = self.joystick_data[4] # Omega velocity -1 to 1 cetnered at 0
+            speed[0] = self.joystick_data[1] / 3# X velocity -1 to 1 centered at 0
+            speed[1] = self.joystick_data[2] / 3 # Y velocity -1 to 1 centered at 0
+            speed[2] = self.joystick_data[3] / 5 # Z velocity -1 to 1 centered at 0
+            speed[3] = self.joystick_data[4] / 3# Omega velocity -1 to 1 cetnered at 0
         elif(self.joystick_data[0] == 1):
             # Autonomous mode
             target_pose = self.autonomous_path[self.target_index]
