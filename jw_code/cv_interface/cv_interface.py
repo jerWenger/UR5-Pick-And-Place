@@ -68,7 +68,7 @@ class CVInterface:
 
     def bottle_identification(self):
         """
-        Auxiliary function placeholder.
+        use camera to identify bottle location and output a display of where the bottle is
         """
         ret, image = self.cap.read()
         display = image.copy()
@@ -94,8 +94,8 @@ class CVInterface:
                 cY = int(M["m01"] / M["m00"])
 
                 # draw the contour and center of the shape on the image
-                cv2.drawContours(display, [c], -1, self.display_color[color], 2)
-                cv2.circle(display, (cX, cY), 7, self.display_color[color], -1)
+                cv2.drawContours(display, [c], -1, self.display_colors[color], 2)
+                cv2.circle(display, (cX, cY), 7, self.display_colors[color], -1)
                 cv2.putText(display, color, (cX - 20, cY - 20),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
                 theta = 0.5*np.arctan2(2*M["mu11"],M["mu20"]-M["mu02"])
@@ -107,7 +107,7 @@ class CVInterface:
 
                 results.append((color, cX, cY, theta))
 
-        return results, image, display
+        return results, display
     
     def first_bottle(self, results):
         return min(results, key=lambda x: x[2])
@@ -126,3 +126,27 @@ class CVInterface:
         vy = dy*fps/pixels_per_meter
         return v_abs, vx, vy
         
+if __name__=="__main__":
+    CV = CVInterface()
+    while True:
+        #ret, image = CV.cap.read()
+
+        # visualize it in a cv window
+        #cv2.imshow("Original_Image", image)
+        cv2.waitKey(3)
+
+        #image = cv2.imread("crunched.jpg")
+        #image = identify_clear(image)
+        results, display = CV.bottle_identification()
+        
+
+        # show the image
+        cv2.imshow("Output", display)
+        cv2.waitKey(3)
+
+        #press q to quit
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+    
+    CV.cap.release()
+    cv2.destroyAllWindows()
