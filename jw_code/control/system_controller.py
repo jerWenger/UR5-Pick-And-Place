@@ -14,7 +14,7 @@ class SystemController:
         Initializes the system controller with instances of the CV and ESP interfaces.
         """
         #Initialize interfaces
-        self.joystick = esp.ESPInterface('/dev/ttyACM0')
+        self.joystick = esp.ESPInterface('/dev/ttyACM0') #Change this to your port
 
         self.rtde_r = rtde_receive.RTDEReceiveInterface("192.168.1.103")
         self.rtde_c = rtde_control.RTDEControlInterface("192.168.1.103")
@@ -59,6 +59,21 @@ class SystemController:
             direction = pos_error / distance
             speed = min(distance, max_speed)
             linear_velocity = direction * speed
+
+        #AngularStuf
+        # current_ang = np.array(current_pose[3:6])
+        # target_ang = np.array(target_pose[3:6])
+        # ang_error = target_ang - current_ang
+        # #ang_error = (target_ang - current_ang + 0.5) % 1.0 - 0.5
+        # ang_distance = np.linalg.norm(ang_error)
+
+        # if ang_distance < 1e-3:
+        #     angular_velocity = np.zeros(3)
+        # else:
+        #     ang_direction = ang_error / ang_distance
+        #     speed = min(ang_distance, max_speed)
+        #     angular_velocity = ang_direction * speed
+
 
         angular_velocity = [0, 0, 0]  # No orientation changes for now
 
@@ -111,12 +126,20 @@ class SystemController:
             speed[3] = self.joystick_data[4] / 3# Omega velocity -1 to 1 cetnered at 0
         elif(self.joystick_data[0] == 1):
             # Autonomous mode
-            target_pose = self.autonomous_path[self.target_index]
+
+            #Pose Target
+            #target_pose = self.autonomous_path[self.target_index]
+            #target_pose = [0.15, -0.4, 0, 0, 3.13, 0] #Neutral
+            #target_pose = [-0.436, -0.567, 0, 0, 3.13, 0] #Green
+            #target_pose = [-0.116, -0.636, 0, 0, 3.13, 0] #Blue
+            #target_pose = [0.14, -0.631, 0, 0, 3.13, 0] #Yellow
+            #target_pose = [0.369, -0.531, 0, 0, 3.13, 0] #Shared
             speed, distance = self.compute_velocity_to_pose(self.pose, target_pose)
 
+            #For auto circle
             # If close enough to the target, move to the next one
-            if distance < self.lookahead_distance:
-                self.target_index = (self.target_index + 1) % len(self.autonomous_path)
+            #if distance < self.lookahead_distance:
+            #    self.target_index = (self.target_index + 1) % len(self.autonomous_path)
 
         #safety check
         speed = self.apply_software_limits(speed)
