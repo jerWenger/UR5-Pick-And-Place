@@ -21,7 +21,9 @@ class CVInterface:
         self.color_ranges = {"green":(green_lower_bound, green_upper_bound), "blue":(blue_lower_bound, blue_upper_bound)}
         self.kernel = np.ones((5,5),np.uint8)
         self.pixels_per_inch = 17
+        self.ppm = 671.9
         self.belt_space = (140, 0, 530, 430) #X1, Y1, X2, Y2
+        self.bottle_tracking = []
         # belt area = (140, 0) (530, 430)
         # width = 23", height = 25"
         
@@ -59,12 +61,32 @@ class CVInterface:
         """
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-        
-    def aux_function(self, *args, **kwargs):
+
+    def step_postion(self, bottle, velocity):
+        timestep = .067 #15 fps
+        dy = int(self.ppm*velocity*timestep) #pixels
+        bottle[2] += dy
+    
+    def measure_velocity(self, center1, center2):
         """
-        Auxiliary function placeholder.
+        calculate approximate velocity in m/s of a bottle given (X1, Y1) and (X2, Y2)
         """
-        print("CVInterface auxiliary function called.")
+        fps = self.get_camera_fps
+        dx = center2[0] - center1[0]
+        dy = center2[1] - center1[1]
+        # add a limit on max velocity to ignore impossibly large jumps
+        pixels_per_meter = self.pixels_per_inch*.0254
+        v_abs = math.sqrt(dx**2 + dy**2)*fps/pixels_per_meter 
+        vx = dx*fps/pixels_per_meter
+        vy = dy*fps/pixels_per_meter
+        return v_abs, vx, vy
+    
+    def pixels_to_coordinates(self, pixelx, pixely):
+        """takes the x and y pixel indices from camera and returns
+        the coordinates in ur5 frame of reference"""
+        robotx = (pixely-23.5)/self.ppm
+        roboty = (pixelx-335)/self.ppm
+        return robotx, roboty
 
     def bottle_identification(self):
         """
@@ -105,26 +127,18 @@ class CVInterface:
                 endY = int(200 * np.sin(theta) + cY)
                 cv2.line(image, (startX, startY), (endX,endY), (0,0,255), 6)
 
-                results.append((color, cX, cY, theta))
+                realX, realY = self.pixels_to_coordinates(cX, cY)
+                results.append((color, realX, realY, theta))
 
-        return results, display
+        first = self.first_bottle(results)
+        return first, display
     
     def first_bottle(self, results):
-        return min(results, key=lambda x: x[2])
-    
-    def calculate_velocity(self, center1, center2):
-        """
-        calculate approximate velocity in m/s of a bottle given (X1, Y1) and (X2, Y2)
-        """
-        fps = self.get_camera_fps
-        dx = center2[0] - center1[0]
-        dy = center2[1] - center1[1]
-        # add a limit on max velocity to ignore impossibly large jumps
-        pixels_per_meter = self.pixels_per_inch*.0254
-        v_abs = math.sqrt(dx**2 + dy**2)*fps/pixels_per_meter 
-        vx = dx*fps/pixels_per_meter
-        vy = dy*fps/pixels_per_meter
-        return v_abs, vx, vy
+        if not results:
+            return ()
+        else:
+            return min(results, key=lambda x: x[2])
+        
         
 if __name__=="__main__":
     CV = CVInterface()
