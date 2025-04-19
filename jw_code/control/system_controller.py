@@ -7,6 +7,7 @@ import numpy as np
 import esp_interface.esp_interface as esp
 import signal
 import sys
+import cv_interface
 
 class SystemController:
     def __init__(self):
@@ -14,10 +15,14 @@ class SystemController:
         Initializes the system controller with instances of the CV and ESP interfaces.
         """
         #Initialize interfaces
-        self.joystick = esp.ESPInterface('/dev/ttyACM0')
+        self.joystick = esp.ESPInterface('/dev/ttyACM0') #Change this to your port
 
         self.rtde_r = rtde_receive.RTDEReceiveInterface("192.168.1.103")
         self.rtde_c = rtde_control.RTDEControlInterface("192.168.1.103")
+
+        self.cv_input = cv_interface.CVInterface()
+        self.bottle_target = ["",[],[]]
+        self.belt_velocity = .1 #m/s  <--- INPUT THE REAL VALUE
 
         #get initial pose
         self.pose = self.rtde_r.getActualTCPPose()
@@ -60,6 +65,21 @@ class SystemController:
             speed = min(distance, max_speed)
             linear_velocity = direction * speed
 
+        #AngularStuf
+        # current_ang = np.array(current_pose[3:6])
+        # target_ang = np.array(target_pose[3:6])
+        # ang_error = target_ang - current_ang
+        # #ang_error = (target_ang - current_ang + 0.5) % 1.0 - 0.5
+        # ang_distance = np.linalg.norm(ang_error)
+
+        # if ang_distance < 1e-3:
+        #     angular_velocity = np.zeros(3)
+        # else:
+        #     ang_direction = ang_error / ang_distance
+        #     speed = min(ang_distance, max_speed)
+        #     angular_velocity = ang_direction * speed
+
+
         angular_velocity = [0, 0, 0]  # No orientation changes for now
 
         return np.concatenate((linear_velocity, angular_velocity)).tolist(), distance
@@ -90,6 +110,26 @@ class SystemController:
 
         return limited_speed
 
+    def calculate_avg_vel(self, v_arr):
+        if len(v_arr)<=1:
+            return 0
+        else:
+            values = [v_arr[i]-v_arr[i-1] for i in range(1,len(v_arr))]
+            return sum(values)/len(values)
+
+    def bottle_status(self, image):
+        first, _ = self.cv_input.bottle_identification()
+        if first and self.bottle_target[0] != "ready": # if bottle in frame: update target with coords
+            # might want to check if the new coordinates are close to previous
+            self.bottle_target[0] = "inFrame"
+            self.bottle_target[1] = first
+            self.bottle_target[2].append(first[2])
+        elif self.bottle_target and type(self.bottle_target[2]) == list: 
+            # if bottle not in frame and bottle target has something: change status
+            self.bottle_target[0] = "ready"
+            self.bottle_target[2] = self.calculate_avg_vel(self.bottle_target[2])
+        # if bottle not in frame and bottle target has nothing: do nothing
+
     def step(self):
         """
         Perform a single control step. This method can be called repeatedly in a loop or manually.
@@ -109,14 +149,28 @@ class SystemController:
             speed[1] = self.joystick_data[2] / 3 # Y velocity -1 to 1 centered at 0
             speed[2] = self.joystick_data[3] / 5 # Z velocity -1 to 1 centered at 0
             speed[3] = self.joystick_data[4] / 3# Omega velocity -1 to 1 cetnered at 0
+
         elif(self.joystick_data[0] == 1):
             # Autonomous mode
+            self.bottle_status() #this will update self.
+            if self.bottle_target[0] == "ready":
+                self.cv_input.step_position(self.bottle_target[1], self.belt_velocity)
+            
             target_pose = self.autonomous_path[self.target_index]
+
+            #Pose Target
+            #target_pose = self.autonomous_path[self.target_index]
+            #target_pose = [0.15, -0.4, 0, 0, 3.13, 0] #Neutral
+            #target_pose = [-0.436, -0.567, 0, 0, 3.13, 0] #Green
+            #target_pose = [-0.116, -0.636, 0, 0, 3.13, 0] #Blue
+            #target_pose = [0.14, -0.631, 0, 0, 3.13, 0] #Yellow
+            #target_pose = [0.369, -0.531, 0, 0, 3.13, 0] #Shared
             speed, distance = self.compute_velocity_to_pose(self.pose, target_pose)
 
+            #For auto circle
             # If close enough to the target, move to the next one
-            if distance < self.lookahead_distance:
-                self.target_index = (self.target_index + 1) % len(self.autonomous_path)
+            #if distance < self.lookahead_distance:
+            #    self.target_index = (self.target_index + 1) % len(self.autonomous_path)
 
         #safety check
         speed = self.apply_software_limits(speed)
