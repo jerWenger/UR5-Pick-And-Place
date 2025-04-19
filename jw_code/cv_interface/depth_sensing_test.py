@@ -21,6 +21,11 @@ align = rs.align(align_to)
 depth_min = 0.8  # 80 cm
 depth_max = 1.0  # 100 cm
 
+# Define crop boundaries (top, bottom, left, right)
+y1, y2 = 90, 390    # vertical range
+x1, x2 = 170, 470   # horizontal range
+
+
 try:
     while True:
         # Wait for a new frame
@@ -52,10 +57,78 @@ try:
         depth_colormap = cv2.applyColorMap(
             depth_normalized.astype(np.uint8), cv2.COLORMAP_JET
         )
+        print(depth_colormap.shape)
+        print(depth_normalized)
+        print(depth_normalized.shape)
+
+        kernel = np.ones((5,5),np.uint8)
+        # bounds = ([],[])
+        # mask = cv2.inRange(hsv, bounds[0], bounds[1])
+        # mask = cv2.inRange(depth_normalized, 135, 210)
+        depth_blurred = cv2.GaussianBlur(depth_normalized, (5, 5), 0)
+        # Crop the depth map
+        depth_crop = depth_blurred[y1:y2, x1:x2]
+
+        # Crop the color image (if you want to overlay results later)
+        color_crop = color_image[y1:y2, x1:x2]
+        
+
+        # mask = cv2.inRange(depth_blurred, 0, 122)
+        mask = cv2.inRange(depth_crop, 0, 131)
+        print(mask)
+    
+        # closing = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations = 1)
+        # Morphological operations
+        kernel = np.ones((5, 5), np.uint8)
+        closing = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+        opening = cv2.morphologyEx(closing, cv2.MORPH_OPEN, kernel, iterations=2)
+
+        # Filter out small areas
+        contours, _ = cv2.findContours(opening, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        for c in contours:
+            if cv2.contourArea(c) < 3000:
+                cv2.drawContours(opening, [c], -1, 0, -1)  # fill with black
+        
+        # contours, _ = cv2.findContours(closing, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+        if len(contours) > 0:
+                c = max(contours, key = cv2.contourArea)
+                
+                # compute the center of the contour
+                M = cv2.moments(c)
+                if M["m10"] == 0 or M["m00"] == 0 or M["m01"] == 0 or M["m00"] == 0:
+                    break
+                cX = int(M["m10"] / M["m00"])
+                cY = int(M["m01"] / M["m00"])
+
+                # draw the contour and center of the shape on the image
+                cv2.drawContours(opening, [c], -1, 0, 2)
+                cv2.circle(opening, (cX, cY), 7, 0, -1)
+                cv2.putText(opening, 'centroid', (cX - 20, cY - 20),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+                theta = 0.5*np.arctan2(2*M["mu11"],M["mu20"]-M["mu02"])
+                startX = int(cX - 200 * np.cos(theta)) 
+                startY = int(cY - 200 * np.sin(theta))
+                endX = int(200 * np.cos(theta) + cX) 
+                endY = int(200 * np.sin(theta) + cY)
+                cv2.line(opening, (startX, startY), (endX,endY), (0,0,255), 6)
+
+        contour_overlay = color_crop.copy()
+        cv2.drawContours(contour_overlay, contours, -1, (0, 255, 0), 2)  # green contours
+
+        # 5. Optional: combine mask and color image visually
+        # mask_color = cv2.cvtColor(closing, cv2.COLOR_GRAY2BGR)  # convert binary mask to 3-channel
+        mask_color = cv2.cvtColor(opening, cv2.COLOR_GRAY2BGR)
+        stacked = np.hstack((contour_overlay, mask_color))
+
+        # 6. Show the result
+        cv2.imshow('Color Image', color_image)
+        cv2.imshow(f'Depth Image ({depth_min}–{depth_max} m)', depth_blurred)
+        cv2.imshow("Depth Range Detection", stacked)
 
         # Display
-        cv2.imshow('Color Image', color_image)
-        cv2.imshow(f'Depth Image ({depth_min}–{depth_max} m)', depth_colormap)
+        # cv2.imshow('Color Image', color_image)
+        # cv2.imshow(f'Depth Image ({depth_min}–{depth_max} m)', depth_colormap)
 
         # Exit on ESC
         if cv2.waitKey(1) == 27:
