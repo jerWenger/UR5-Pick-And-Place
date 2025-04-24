@@ -15,12 +15,12 @@ class SystemController:
         Initializes the system controller with instances of the CV and ESP interfaces.
         """
         #Initialize interfaces
-        self.joystick = esp.ESPInterface('/dev/ttyACM0') #Change this to your port
+        self.joystick = esp.ESPInterface('COM7') #Change this to your port
 
         self.rtde_r = rtde_receive.RTDEReceiveInterface("192.168.1.103")
         self.rtde_c = rtde_control.RTDEControlInterface("192.168.1.103")
 
-        self.cv_input = cv_interface.CVInterface()
+        #self.cv_input = cv_interface.CVInterface()
         self.bottle_target = ["",[],[]]
         self.belt_velocity = .1 #m/s  <--- INPUT THE REAL VALUE
 
@@ -66,21 +66,24 @@ class SystemController:
             linear_velocity = direction * speed
 
         #AngularStuf
-        # current_ang = np.array(current_pose[3:6])
-        # target_ang = np.array(target_pose[3:6])
-        # ang_error = target_ang - current_ang
-        # #ang_error = (target_ang - current_ang + 0.5) % 1.0 - 0.5
-        # ang_distance = np.linalg.norm(ang_error)
+        current_ang = np.array((current_pose[3:6]))
+        target_ang = np.array((target_pose[3:6]))
+        #ang_error = target_ang - current_ang
+        ang_error = (target_ang - current_ang + 0.5) % 1.0 - 0.5
+        ang_distance = np.linalg.norm(ang_error)
 
-        # if ang_distance < 1e-3:
-        #     angular_velocity = np.zeros(3)
-        # else:
-        #     ang_direction = ang_error / ang_distance
-        #     speed = min(ang_distance, max_speed)
-        #     angular_velocity = ang_direction * speed
+        if ang_distance < 1e-3:
+            angular_velocity = np.zeros(3)
+        else:
+            ang_direction = ang_error / ang_distance
+            speed = min(ang_distance, max_speed)
+            angular_velocity = ang_direction * speed
+        if current_ang[0] < 0:
+            angular_velocity = -angular_velocity
+        angular_velocity = [angular_velocity[0], 0, 0]
 
 
-        angular_velocity = [0, 0, 0]  # No orientation changes for now
+        #angular_velocity = [0, 0, 0]  # No orientation changes for now
 
         return np.concatenate((linear_velocity, angular_velocity)).tolist(), distance
     
@@ -152,15 +155,15 @@ class SystemController:
 
         elif(self.joystick_data[0] == 1):
             # Autonomous mode
-            self.bottle_status() #this will update self.
-            if self.bottle_target[0] == "ready":
-                self.cv_input.step_position(self.bottle_target[1], self.belt_velocity)
+            # self.bottle_status() #this will update self.
+            #if self.bottle_target[0] == "ready":
+            #    self.cv_input.step_position(self.bottle_target[1], self.belt_velocity)
             
             target_pose = self.autonomous_path[self.target_index]
 
             #Pose Target
             #target_pose = self.autonomous_path[self.target_index]
-            #target_pose = [0.15, -0.4, 0, 0, 3.13, 0] #Neutral
+            target_pose = [0.15, -0.4, 0, 3, 0, 0] #Neutral
             #target_pose = [-0.436, -0.567, 0, 0, 3.13, 0] #Green
             #target_pose = [-0.116, -0.636, 0, 0, 3.13, 0] #Blue
             #target_pose = [0.14, -0.631, 0, 0, 3.13, 0] #Yellow
