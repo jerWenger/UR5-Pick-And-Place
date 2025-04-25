@@ -7,7 +7,8 @@ import numpy as np
 import esp_interface.esp_interface as esp
 import signal
 import sys
-import cv_interface
+from cv_interface import cv_interface
+from cv_interface import bottle
 
 class SystemController:
     def __init__(self):
@@ -21,8 +22,11 @@ class SystemController:
         self.rtde_c = rtde_control.RTDEControlInterface("192.168.1.103")
 
         self.cv_input = cv_interface.CVInterface()
-        self.bottle_target = ["",[],[]]
+        self.cv_input.set_camera_fps(10)
+        self.current_bottle = None
         self.belt_velocity = .1 #m/s  <--- INPUT THE REAL VALUE
+        self.UR5status = "idle"
+        # status options: idle, prep, pickup, drop, reset
 
         #get initial pose
         self.pose = self.rtde_r.getActualTCPPose()
@@ -110,25 +114,27 @@ class SystemController:
 
         return limited_speed
 
-    def calculate_avg_vel(self, v_arr):
-        if len(v_arr)<=1:
-            return 0
-        else:
-            values = [v_arr[i]-v_arr[i-1] for i in range(1,len(v_arr))]
-            return sum(values)/len(values)
-
-    def bottle_status(self, image):
+    def update_bottle(self):
         first, _ = self.cv_input.bottle_identification()
-        if first and self.bottle_target[0] != "ready": # if bottle in frame: update target with coords
-            # might want to check if the new coordinates are close to previous
-            self.bottle_target[0] = "inFrame"
-            self.bottle_target[1] = first
-            self.bottle_target[2].append(first[2])
-        elif self.bottle_target and type(self.bottle_target[2]) == list: 
-            # if bottle not in frame and bottle target has something: change status
-            self.bottle_target[0] = "ready"
-            self.bottle_target[2] = self.calculate_avg_vel(self.bottle_target[2])
-        # if bottle not in frame and bottle target has nothing: do nothing
+        if first and self.UR5status == "idle": #if there was no bottle, create one
+            self.current_bottle = first
+            self.UR5status = "prep"
+        elif first and self.UR5status == "prep":
+            self.current_bottle = first.update(self.current_bottle)
+            if self.current_bottle.get_status() == "ready":
+                self.UR5status = "pickup"
+        elif self.UR5status == "ready":
+            self.current_bottle.step_pos()
+        # if first and self.bottle_target[0] != "ready": # if bottle in frame: update target with coords
+        #     # might want to check if the new coordinates are close to previous
+        #     self.bottle_target[0] = "inFrame"
+        #     self.bottle_target[1] = first
+        #     #self.bottle_target[2].append(first[2])
+        # elif self.bottle_target and type(self.bottle_target[2]) == list: 
+        #     # if bottle not in frame and bottle target has something: change status
+        #     self.bottle_target[0] = "ready"
+        #     self.bottle_target[1][0] -= self.belt_velocity*.1
+        # # if bottle not in frame and bottle target has nothing: do nothing
 
     def step(self):
         """
@@ -152,12 +158,25 @@ class SystemController:
 
         elif(self.joystick_data[0] == 1):
             # Autonomous mode
-            self.bottle_status() #this will update self.
-            if self.bottle_target[0] == "ready":
-                self.cv_input.step_position(self.bottle_target[1], self.belt_velocity)
-            
-            target_pose = self.autonomous_path[self.target_index]
-
+            target_pose = [0.15, -0.4, 0, 0, 3.13, 0] #neutral
+            self.update_bottle #this will update self.
+            if self.UR5status == "prep":
+                target_pose[1] = self.current_bottle.get_y()
+            elif self.UR5status == "pickup":
+                target_pose[0] = self.current_bottle.get_x()
+                target_pose[1] = self.current_bottle.get_y()
+                # when it arrives at location, lower y
+                # then set status to drop
+            elif self.UR5status == "drop":
+                color = self.current_bottle.get_color()
+                # move to bin
+                # change status to reset once it drops
+            elif self.UR5status == "reset":
+                self.current_bottle = None
+                # target pose is neutral
+           
+           
+            #target_pose = self.autonomous_path[self.target_index]
             #Pose Target
             #target_pose = self.autonomous_path[self.target_index]
             #target_pose = [0.15, -0.4, 0, 0, 3.13, 0] #Neutral
@@ -182,7 +201,8 @@ class SystemController:
         return {
         "pose": pose,
         "speed": speed,
-        "joystick": self.joystick_data
+        "joystick": self.joystick_data,
+        "status": self.UR5status
         }
 
 

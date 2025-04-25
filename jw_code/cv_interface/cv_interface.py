@@ -2,13 +2,14 @@
 import cv2
 import math
 import numpy as np
+import bottle
 
 class CVInterface:
     def __init__(self):
         """
         Initialize computer vision interface.
         """
-        self.cap = cv2.VideoCapture(1) # 0 for webcam, probably 1 for external camera
+        self.cap = cv2.VideoCapture(1) # 0 for webcam, 1 for external camera
         
         blue_lower_bound = (85,50,50)
         blue_upper_bound = (140,255,255)
@@ -107,31 +108,31 @@ class CVInterface:
 
             if len(cnts) > 0:
                 c = max(cnts, key = cv2.contourArea)
-                
-                # compute the center of the contour
-                M = cv2.moments(c)
-                if M["m10"] == 0 or M["m00"] == 0 or M["m01"] == 0 or M["m00"] == 0:
-                    break
-                cX = int(M["m10"] / M["m00"])
-                cY = int(M["m01"] / M["m00"])
+                if cv2.contourArea(c) >= 100: #experiment with minimum area
+                    # compute the center of the contour
+                    M = cv2.moments(c)
+                    if M["m10"] == 0 or M["m00"] == 0 or M["m01"] == 0 or M["m00"] == 0:
+                        break
+                    cX = int(M["m10"] / M["m00"])
+                    cY = int(M["m01"] / M["m00"])
 
-                # draw the contour and center of the shape on the image
-                cv2.drawContours(display, [c], -1, self.display_colors[color], 2)
-                cv2.circle(display, (cX, cY), 7, self.display_colors[color], -1)
-                cv2.putText(display, color, (cX - 20, cY - 20),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-                theta = 0.5*np.arctan2(2*M["mu11"],M["mu20"]-M["mu02"])
-                startX = int(cX - 200 * np.cos(theta)) 
-                startY = int(cY - 200 * np.sin(theta))
-                endX = int(200 * np.cos(theta) + cX) 
-                endY = int(200 * np.sin(theta) + cY)
-                cv2.line(image, (startX, startY), (endX,endY), (0,0,255), 6)
+                    # draw the contour and center of the shape on the image
+                    cv2.drawContours(display, [c], -1, self.display_colors[color], 2)
+                    cv2.circle(display, (cX, cY), 7, self.display_colors[color], -1)
+                    cv2.putText(display, color, (cX - 20, cY - 20),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+                    theta = 0.5*np.arctan2(2*M["mu11"],M["mu20"]-M["mu02"])
+                    startX = int(cX - 200 * np.cos(theta)) 
+                    startY = int(cY - 200 * np.sin(theta))
+                    endX = int(200 * np.cos(theta) + cX) 
+                    endY = int(200 * np.sin(theta) + cY)
+                    cv2.line(image, (startX, startY), (endX,endY), (0,0,255), 6)
 
-                realX, realY = self.pixels_to_coordinates(cX, cY)
-                results.append((color, realX, realY, theta))
+                    realX, realY = self.pixels_to_coordinates(cX, cY)
+                    results.append((color, realX, realY, theta))
 
         first = self.first_bottle(results)
-        return first, display
+        return bottle.Bottle(*first), display
     
     def first_bottle(self, results):
         if not results:

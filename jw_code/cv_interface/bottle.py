@@ -1,0 +1,64 @@
+class Bottle():
+    def __init__(self, color, x, y, theta):
+        self.color = color
+        self.x = x
+        self.y = y
+        self.theta = theta
+        self.velocity = 0
+        if x < .1:
+            self.status = "ready"
+        else:
+            self.status = "inFrame"
+
+    def get_status(self):
+        return self.status
+    
+    def get_color(self):
+        return self.color
+
+    def get_pos(self):
+        return self.x, self.y
+    
+    def get_x(self):
+        return self.x
+    
+    def get_y(self):
+        return self.y
+    
+    def set_x(self, xval):
+        self.x = xval
+
+    def set_y(self, yval):
+        self.y = yval
+    
+    def get_velocity(self):
+        return self.velocity
+    
+    def set_velocity(self,v):
+        self.velocity = v
+
+    def same_as(self, other):
+        return other.color == self.color and abs(other.get_x() - self.x) <= 0.1 and abs(other.get_y() - self.y) <= 0.1
+            
+    def update(self, old):
+        if self.same_as(old):
+            #self bottle is kept, old bottle gets deleted
+            old_x, old_y = old.get_pos()
+            x, y = self.get_pos()
+            dt = .1 #at 10 fps
+            alpha = 0.5 #lp filter constant
+            new_v = (x-old_x)/dt
+            self.velocity = alpha*old.get_velocity() + (1-alpha)*new_v
+
+    def step_pos(self):
+        newx = self.x + self.velocity*.1
+        self.x = newx
+    
+    #not used
+    def calculate_avg_vel(self, v_arr):
+        if len(v_arr)<=1:
+            return 0
+        else:
+            values = [v_arr[i]-v_arr[i-1] for i in range(1,len(v_arr))]
+            return sum(values)/len(values)
+        
