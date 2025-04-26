@@ -2,6 +2,15 @@ import cv2
 import pyrealsense2 as rs
 import numpy as np
 
+
+def pixels_to_coordinates(pixelx, pixely):
+    """takes the x and y pixel indices from camera and returns
+    the coordinates in ur5 frame of reference"""
+    ppm = 671.9
+    robotx = (pixely-23.5)/ppm
+    roboty = (pixelx-335)/ppm
+    return robotx, roboty
+
 # Initialize pipeline and config
 pipeline = rs.pipeline()
 config = rs.config()
@@ -74,7 +83,7 @@ try:
         
 
         # mask = cv2.inRange(depth_blurred, 0, 122)
-        mask = cv2.inRange(depth_crop, 0, 131)
+        mask = cv2.inRange(depth_crop, 0, 124)
         print(mask)
     
         # closing = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations = 1)
@@ -83,16 +92,20 @@ try:
         closing = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
         opening = cv2.morphologyEx(closing, cv2.MORPH_OPEN, kernel, iterations=2)
 
+        results = []
         # Filter out small areas
         contours, _ = cv2.findContours(opening, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        contours_copy = []
         for c in contours:
             if cv2.contourArea(c) < 3000:
                 cv2.drawContours(opening, [c], -1, 0, -1)  # fill with black
+            else:
+                contours_copy.append(c)
         
         # contours, _ = cv2.findContours(closing, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
-        if len(contours) > 0:
-                c = max(contours, key = cv2.contourArea)
+        if len(contours_copy) > 0:
+                c = max(contours_copy, key = cv2.contourArea)
                 
                 # compute the center of the contour
                 M = cv2.moments(c)
@@ -112,9 +125,11 @@ try:
                 endX = int(200 * np.cos(theta) + cX) 
                 endY = int(200 * np.sin(theta) + cY)
                 cv2.line(opening, (startX, startY), (endX,endY), (0,0,255), 6)
+                realX, realY = pixels_to_coordinates(cX, cY)
+                results.append(("clear", realX, realY, theta))
 
         contour_overlay = color_crop.copy()
-        cv2.drawContours(contour_overlay, contours, -1, (0, 255, 0), 2)  # green contours
+        cv2.drawContours(contour_overlay, contours_copy, -1, (0, 255, 0), 2)  # green contours
 
         # 5. Optional: combine mask and color image visually
         # mask_color = cv2.cvtColor(closing, cv2.COLOR_GRAY2BGR)  # convert binary mask to 3-channel
@@ -123,7 +138,7 @@ try:
 
         # 6. Show the result
         cv2.imshow('Color Image', color_image)
-        cv2.imshow(f'Depth Image ({depth_min}–{depth_max} m)', depth_blurred)
+        cv2.imshow(f'Depth Image ({depth_min}-{depth_max} m)', depth_blurred)
         cv2.imshow("Depth Range Detection", stacked)
 
         # Display
