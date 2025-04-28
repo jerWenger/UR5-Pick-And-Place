@@ -10,6 +10,9 @@ class Bottle():
         else:
             self.status = "inFrame"
 
+    def __str__(self):
+        return f'position: ({round(self.x,2)}, {round(self.y,2)}), velocity: {self.velocity} \n {self.status}'
+
     def get_status(self):
         return self.status
     
@@ -44,7 +47,7 @@ class Bottle():
         if self.same_as(old):
             #self bottle is kept, old bottle gets deleted
             old_x, old_y = old.get_pos()
-            x, y = self.get_pos()
+            x = self.x
             dt = .1 #at 10 fps
             alpha = 0.5 #lp filter constant
             new_v = (x-old_x)/dt
