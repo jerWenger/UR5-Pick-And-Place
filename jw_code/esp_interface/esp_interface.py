@@ -93,7 +93,7 @@ class ESPInterface:
             # Make sure they are integers
             cmd_string = f"{int(pickup_state)},{int(thrower_state)}\n"
             self.serial_port.write(cmd_string.encode('utf-8'))
-            print(f"Writing to ESP32: {cmd_string.strip()}") 
+            #print(f"Writing to ESP32: {cmd_string.strip()}") 
             return True
         except Exception as e:
             print(f"Failed to write serial data to the ESP32: {e}")

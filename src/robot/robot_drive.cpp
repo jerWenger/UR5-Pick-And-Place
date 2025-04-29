@@ -2,14 +2,26 @@
 #include "util.h"
 #include "robot_drive.h"
 
-#define VACUUM_PIN 1
-#define PURGE_PIN 3
-#define SOLENOID_PIN 5
+#define VACUUM_PIN 40
+#define PURGE_PIN 41
+#define SOLENOID_PIN 14
+
+void flushSerialInput(unsigned long maxDurationMs = 10) {
+    unsigned long startTime = millis();
+    while (Serial.available() > 0) {
+        Serial.read();
+        if (millis() - startTime > maxDurationMs) {
+            break; // Safety break
+        }
+    }
+}
 
 int autonomous_pickup_state = 0;
 int autonomous_thrower_state = 0;
 bool freshLaptopData = false;
 bool laptopDataReceived = false;
+unsigned long lastFlushTime = 0;
+const unsigned long flushInterval = 30000;
 
 void setup() {
 
@@ -36,6 +48,12 @@ void loop() {
             freshLaptopData = true;
             laptopDataReceived = true;
         }
+    }
+
+    // Periodic flush every ~10 seconds
+    if (millis() - lastFlushTime >= flushInterval) {
+        flushSerialInput(10); // Try flushing for up to 10 ms
+        lastFlushTime = millis(); // Reset timer
     }
 
     // Update setpoint at 50Hz
@@ -107,3 +125,4 @@ void loop() {
     }
 
 }
+

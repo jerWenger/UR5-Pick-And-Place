@@ -157,6 +157,7 @@ class ControlGUI(QWidget):
         pose = result["pose"]
         speed = result["speed"]
         joystick = result["joystick"]
+        error = result["error"]
 
         mode = "Joystick" if joystick[0] == 0 else "Autonomous"
         pickup_active = "Yes" if joystick[5] else "No"
@@ -178,7 +179,7 @@ class ControlGUI(QWidget):
             f"Z Position: {pose[2]:.3f} m<br>"
             f"Rotation X: {pose[3]:.3f} rad<br>"
             f"Rotation Y: {pose[4]:.3f} rad<br>"
-            f"Rotation Z: {pose[5]:.3f} rad<br><br>"
+            f"Rotation Z: {pose[5]:.3f} rad<br>"
 
             "<b>TCP Speed</b><br>"
             f"X Speed: {speed[0]:.2f} m/s<br>"
