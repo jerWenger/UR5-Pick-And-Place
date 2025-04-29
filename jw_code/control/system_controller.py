@@ -16,85 +16,102 @@ class SystemController:
         Initializes the system controller with instances of the CV and ESP interfaces.
         """
         #Initialize interfaces
-        self.joystick = esp.ESPInterface('COM7') #Change this to your port
+        self.joystick = esp.ESPInterface('/dev/ttyACM0') #Change this to your port
 
         self.rtde_r = rtde_receive.RTDEReceiveInterface("192.168.1.103")
         self.rtde_c = rtde_control.RTDEControlInterface("192.168.1.103")
 
-<<<<<<< HEAD
         self.cv_input = cv_interface.CVInterface()
-        self.cv_input.set_camera_fps(10)
-        self.current_bottle = None
-=======
-        #self.cv_input = cv_interface.CVInterface()
-        self.bottle_target = ["",[],[]]
->>>>>>> 32fe252713280223be8e29eb1e95396d6cdd2f22
+        #self.bottle_target = ["",[],[]]
         self.belt_velocity = .1 #m/s  <--- INPUT THE REAL VALUE
-        self.UR5status = "idle"
+        #self.UR5status = "idle"
         # status options: idle, prep, pickup, drop, reset
+        #self.dropped = False
 
         #get initial pose
         self.pose = self.rtde_r.getActualTCPPose()
         self.running = True
 
         # Autonomous path parameters
-        self.autonomous_path = self.generate_circle_path(radius=0.15, center=[0, -0.5, 0.1], num_points=50)
-        self.target_index = 0
-        self.lookahead_distance = 0.02  # How close before switching to next point
+        #self.lookahead_distance = 0.02  # How close before switching to next point
+        self.last_rot_error = np.zeros(3)
+        self.error = [0,0,0,0]
 
-    def generate_circle_path(self, radius, center, num_points):
-        """
-        Generate a list of (x, y, z) poses forming a circle in the XY plane.
-        """
-        path = []
-        cx, cy, cz = center
-        for i in range(num_points):
-            angle = 2 * np.pi * i / num_points
-            x = cx + radius * np.cos(angle)
-            y = cy + radius * np.sin(angle)
-            z = cz
-            pose = [x, y, z, 0, 0, 0]
-            path.append(pose)
-        return path
+        #Timing code for pd controller
+        self.last_time = time.time()
+        self.dt = 0.005 
+
+        #Timing for testing PD gains
+        self.switch_interval = 5.0  # seconds between switches
+        self.last_switch_time = time.time()
+        self.current_target_index = 0  # 0 or 1
+
+        #state machine
+        self.state = "GO_TO_NEUTRAL"
+        self.throw = False
+        self.margin = 0.01
+        self.safe_height = 0.1
+        self.pickup_height = 0.0
+
+        self.neutral_rotation = [0.5, 3.0, 0.0]
+
+        self.neutral_pose = [0.15, -0.4, self.safe_height, self.neutral_rotation]
+
+        self.bin_poses = {
+            "green": [-0.436, -0.567, self.safe_height, self.neutral_rotation],
+            "blue": [-0.116, -0.636, self.safe_height, self.neutral_rotation],
+            "yellow": [0.140, -0.631, self.safe_height, self.neutral_rotation],
+            "shared": [0.369, -0.531, self.safe_height, self.neutral_rotation]
+        }
     
+    def compute_velocity_to_pose(self, current_pose, target_pose, max_speed=1, max_angular_speed=0.5):
+        """
+        Compute a 6D velocity vector (vx, vy, vz, wx, wy, wz) to move from current_pose to target_pose.
+        Linear and angular velocities are scaled to avoid exceeding max_speed.
+        """
 
-    def compute_velocity_to_pose(self, current_pose, target_pose, max_speed=2):
-        """
-        Compute a velocity vector to move from current pose to target pose.
-        """
+        # --- Linear Part ---
         current_pos = np.array(current_pose[:3])
         target_pos = np.array(target_pose[:3])
         pos_error = target_pos - current_pos
         distance = np.linalg.norm(pos_error)
 
-        if distance < 1e-4:
+        if distance > 1e-4:
+            linear_direction = pos_error / distance
+            linear_speed = min(distance, max_speed)
+            linear_velocity = linear_direction * linear_speed
+        else:
             linear_velocity = np.zeros(3)
-        else:
-            direction = pos_error / distance
-            speed = min(distance, max_speed)
-            linear_velocity = direction * speed
 
-        #AngularStuf
-        current_ang = np.array((current_pose[3:6]))
-        target_ang = np.array((target_pose[3:6]))
-        #ang_error = target_ang - current_ang
-        ang_error = (target_ang - current_ang + 0.5) % 1.0 - 0.5
-        ang_distance = np.linalg.norm(ang_error)
+        # --- Angular Part ---
+        current_rot = np.array(current_pose[3:6])
+        target_rot = np.array(target_pose[3:6])
 
-        if ang_distance < 1e-3:
-            angular_velocity = np.zeros(3)
-        else:
-            ang_direction = ang_error / ang_distance
-            speed = min(ang_distance, max_speed)
-            angular_velocity = ang_direction * speed
-        if current_ang[0] < 0:
-            angular_velocity = -angular_velocity
-        angular_velocity = [angular_velocity[0], 0, 0]
+        # Rotation error wrapped to [-pi, pi]
+        rot_error = (target_rot - current_rot + np.pi) % (2 * np.pi) - np.pi
 
+        # Derivative of rotation 
+        rot_error_derivative = (rot_error - self.last_rot_error) / self.dt
 
-        #angular_velocity = [0, 0, 0]  # No orientation changes for now
+        # PD control
+        Kp_ang = 1  # proportional gain
+        Kd_ang = 0.5  # derivative gain (damping)
 
-        return np.concatenate((linear_velocity, angular_velocity)).tolist(), distance
+        angular_velocity = Kp_ang * rot_error + Kd_ang * rot_error_derivative
+
+        # Clip angular velocity to max
+        if np.linalg.norm(angular_velocity) > max_angular_speed:
+            angular_velocity = (angular_velocity / np.linalg.norm(angular_velocity)) * max_angular_speed
+
+        # --- Combine
+        velocity_command = np.concatenate((linear_velocity, angular_velocity))
+
+        # --- Save errors for next step
+        self.last_rot_error = rot_error.copy()
+        self.error = [pos_error, distance, rot_error, np.linalg.norm(rot_error)]
+
+        return velocity_command.tolist(), distance
+
     
     def apply_software_limits(self, speed):
         """
@@ -133,22 +150,19 @@ class SystemController:
                 self.UR5status = "pickup"
         elif self.UR5status == "ready":
             self.current_bottle.step_pos()
-        # if first and self.bottle_target[0] != "ready": # if bottle in frame: update target with coords
-        #     # might want to check if the new coordinates are close to previous
-        #     self.bottle_target[0] = "inFrame"
-        #     self.bottle_target[1] = first
-        #     #self.bottle_target[2].append(first[2])
-        # elif self.bottle_target and type(self.bottle_target[2]) == list: 
-        #     # if bottle not in frame and bottle target has something: change status
-        #     self.bottle_target[0] = "ready"
-        #     self.bottle_target[1][0] -= self.belt_velocity*.1
-        # # if bottle not in frame and bottle target has nothing: do nothing
+
 
     def step(self):
         """
         Perform a single control step. This method can be called repeatedly in a loop or manually.
         """
         
+        # --- Timing
+        now = time.time()
+        self.dt = now - self.last_time
+        self.last_time = now
+        
+
         #get current pose
         self.pose = self.rtde_r.getActualTCPPose()
         
@@ -157,56 +171,71 @@ class SystemController:
 
         speed = [0,0,0,0,0,0]
 
+        #get cv data
+        # IS CV Ready for the robot to move
+        # BOTTLE X, BOTTLE Y, BOTTLE COLOR 
+        
         #decide if we are in joystick mode operate accordingly
         if (self.joystick_data[0] == 0):
             speed[0] = self.joystick_data[1] / 3# X velocity -1 to 1 centered at 0
             speed[1] = self.joystick_data[2] / 3 # Y velocity -1 to 1 centered at 0
             speed[2] = self.joystick_data[3] / 5 # Z velocity -1 to 1 centered at 0
             speed[3] = self.joystick_data[4] / 3# Omega velocity -1 to 1 cetnered at 0
-
         elif(self.joystick_data[0] == 1):
-            # Autonomous mode
-<<<<<<< HEAD
-            target_pose = [0.15, -0.4, 0, 0, 3.13, 0] #neutral
-            self.update_bottle #this will update self.
-            if self.UR5status == "prep":
-                target_pose[1] = self.current_bottle.get_y()
-            elif self.UR5status == "pickup":
-                target_pose[0] = self.current_bottle.get_x()
-                target_pose[1] = self.current_bottle.get_y()
-                # when it arrives at location, lower y
-                # then set status to drop
-            elif self.UR5status == "drop":
-                color = self.current_bottle.get_color()
-                # move to bin
-                # change status to reset once it drops
-            elif self.UR5status == "reset":
-                self.current_bottle = None
-                # target pose is neutral
-           
-           
-            #target_pose = self.autonomous_path[self.target_index]
-=======
-            # self.bottle_status() #this will update self.
-            #if self.bottle_target[0] == "ready":
-            #    self.cv_input.step_position(self.bottle_target[1], self.belt_velocity)
-            
-            target_pose = self.autonomous_path[self.target_index]
+           #Autonomous mode
+           if self.state == "GO_TO_NEUTRAL":
+               success = False
 
->>>>>>> 32fe252713280223be8e29eb1e95396d6cdd2f22
-            #Pose Target
-            #target_pose = self.autonomous_path[self.target_index]
-            target_pose = [0.15, -0.4, 0, 3, 0, 0] #Neutral
-            #target_pose = [-0.436, -0.567, 0, 0, 3.13, 0] #Green
-            #target_pose = [-0.116, -0.636, 0, 0, 3.13, 0] #Blue
-            #target_pose = [0.14, -0.631, 0, 0, 3.13, 0] #Yellow
-            #target_pose = [0.369, -0.531, 0, 0, 3.13, 0] #Shared
-            speed, distance = self.compute_velocity_to_pose(self.pose, target_pose)
+               #WE are moving to neutral
 
-            #For auto circle
-            # If close enough to the target, move to the next one
-            #if distance < self.lookahead_distance:
-            #    self.target_index = (self.target_index + 1) % len(self.autonomous_path)
+               if (success):
+                   self.state = "WAIT"
+           elif self.state == "WAIT":
+               success = False
+
+               #WE are waiting for the next bottle
+           
+               if(success):
+                   self.state = "MOVE_OVER_BOTTLE"
+           elif self.state == "MOVE_OVER_BOTTLE":
+               success = False
+
+               #We are moving above the bottle
+
+               if(success):
+                   self.state = "LOWER_ON_BOTTLE"
+           elif self.state == "LOWER_ON_BOTTLE":
+               success = False
+
+                #WE are lowering to pick up the bottle
+               if(success):
+                   self.state = "GO_TO_BIN"
+           elif self.state == "GO_TO_BIN":
+               success = False
+
+               #WE are going to the correct bin
+
+               if (success):
+                   self.state = "DROP_BOTTLE"
+               elif (success and self.throw):
+                   self.state = "THROW_BOTTLE"
+           elif self.state == "DROP_BOTTLE":
+               success = False
+
+               #We are dropping the bottle
+
+               if(success):
+                   self.state = "GO_TO_NEUTRAL"
+           elif self.state == "THROW_BOTTLE":
+               success = False
+
+                #We are throwwing the bottle
+               speed = [0,0,0,0,0,0]
+               
+               if(success):
+                   self.state = "GO_TO_NEUTRAL"
+           else:
+               speed = [0,0,0,0,0,0]
 
         #safety check
         speed = self.apply_software_limits(speed)
@@ -219,7 +248,9 @@ class SystemController:
         "pose": pose,
         "speed": speed,
         "joystick": self.joystick_data,
-        "status": self.UR5status
+        "status": self.UR5status,
+        "error": self.error,
+        "state": self.state
         }
 
 
