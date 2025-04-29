@@ -7,8 +7,10 @@ import numpy as np
 import esp_interface.esp_interface as esp
 import signal
 import sys
-from cv_interface import cv_interface
-from cv_interface import bottle
+import cv2
+#from cv_interface import cv_interface
+from cv_interface import depth_integrated
+import cv_interface.bottle as bottle
 
 class SystemController:
     def __init__(self):
@@ -16,15 +18,23 @@ class SystemController:
         Initializes the system controller with instances of the CV and ESP interfaces.
         """
         #Initialize interfaces
-        self.joystick = esp.ESPInterface('COM3') #Change this to your port
+        self.joystick = esp.ESPInterface('/dev/ttyACM0') #Change this to your port
 
         self.rtde_r = rtde_receive.RTDEReceiveInterface("192.168.1.103")
         self.rtde_c = rtde_control.RTDEControlInterface("192.168.1.103")
 
-        self.cv_input = cv_interface.CVInterface()
+        #self.cv_input = cv_interface.CVInterface()
+        self.cv_last_time = 0
+        self.cv_time_step = 0.2
+        self.cv_input = depth_integrated.CVInterface()
         self.current_bottle = None
         #self.bottle_target = ["",[],[]]
         self.belt_velocity = .1 #m/s  <--- INPUT THE REAL VALUE
+
+        #bottle pose
+        self.bottleX = None
+        self.bottleY = None
+        self.bottle_color = None
         
         # status options: idle, prep, pickup, drop, reset
         #self.dropped = False
@@ -42,13 +52,15 @@ class SystemController:
         self.last_time = time.time()
         self.dt = 0.005 
 
+
+
         #Timing for testing PD gains
         self.switch_interval = 5.0  # seconds between switches
         self.last_switch_time = time.time()
         self.current_target_index = 0  # 0 or 1
 
         #state machine
-        self.state = "GO_TO_NEUTRAL"
+        self.state = "WAIT"
         self.throw = False
         self.margin = 0.01
         self.safe_height = 0.1
@@ -57,13 +69,13 @@ class SystemController:
 
         self.neutral_rotation = [0.5, 3.0, 0.0]
 
-        self.neutral_pose = [0.15, -0.4, self.safe_height, self.neutral_rotation]
+        self.neutral_pose = [0.15, -0.4, self.safe_height, self.neutral_rotation[0], self.neutral_rotation[1], self.neutral_rotation[2]]
 
         self.bin_poses = {
-            "clear": [-0.436, -0.567, self.safe_height, self.neutral_rotation],
-            "blue": [-0.116, -0.636, self.safe_height, self.neutral_rotation],
-            "yellow": [0.140, -0.631, self.safe_height, self.neutral_rotation],
-            "shared": [0.369, -0.531, self.safe_height, self.neutral_rotation]
+            "clear": [-0.436, -0.567, self.safe_height, self.neutral_rotation[0], self.neutral_rotation[1], self.neutral_rotation[2]],
+            "blue": [-0.116, -0.636, self.safe_height, self.neutral_rotation[0], self.neutral_rotation[1], self.neutral_rotation[2]],
+            "yellow": [0.140, -0.631, self.safe_height, self.neutral_rotation[0], self.neutral_rotation[1], self.neutral_rotation[2]],
+            "shared": [0.369, -0.531, self.safe_height, self.neutral_rotation[0], self.neutral_rotation[1], self.neutral_rotation[2]]
         }
     
     def set_actuator(self, desired_action):
@@ -151,7 +163,7 @@ class SystemController:
         return limited_speed
 
     def update_bottle(self, timestep = .1):
-        first, _ = self.cv_input.bottle_identification()
+        first, display = self.cv_input.bottle_identification()
         if self.current_bottle == None: #if there was no bottle, create one
             if first:
                 self.current_bottle = first
@@ -163,7 +175,8 @@ class SystemController:
                 self.current_bottle.step_pos()
             elif first:
                 self.current_bottle = first.update(self.current_bottle, timestep)
-       
+        return display
+    
     def step(self):
         """
         Perform a single control step. This method can be called repeatedly in a loop or manually.
@@ -184,14 +197,17 @@ class SystemController:
         speed = [0,0,0,0,0,0]
 
         #get cv data
-        self.update_bottle(self.dt)
-        if (self.current_bottle != None) and (self.current_bottle.get_status == "ready"):
-            self.state = "MOVE_OVER_BOTTLE"
-            bottleX = self.current_bottle.get_x
-            bottleY = self.current_bottle.get_y
-            bottle_color = self.current_bottle.get_color
-        else:
-            self.state = "WAIT"
+        if (now - self.cv_last_time >= self.cv_time_step):
+            cv_dt = now - self.cv_last_time
+            self.cv_last_time = now
+            display = self.update_bottle(cv_dt)
+            cv2.imshow("Output", display)
+
+            if self.current_bottle is not None:
+                self.bottleX = self.current_bottle.get_x()
+                self.bottleY = self.current_bottle.get_y()
+                self.bottle_color = self.current_bottle.get_color()
+                print(f"BottleX: {self.bottleX}, BottleY: {self.bottleY}")
         
 
 
@@ -211,19 +227,19 @@ class SystemController:
                if (success):
                    self.state = "WAIT"
            elif self.state == "WAIT":
-               success = False
+               
+               speed = [0,0,0,0,0,0]
             
                #WE are waiting for the next bottle
-               speed = [0,0,0,0,0,0]
-           
-               if(success):
-                   self.state = "MOVE_OVER_BOTTLE"
+               if self.bottleX is not None and self.bottleY is not None:
+                    print("[FSM] Bottle detected — transitioning to MOVE_OVER_BOTTLE")
+                    self.state = "MOVE_OVER_BOTTLE"
            elif self.state == "MOVE_OVER_BOTTLE":
                success = False
 
                #We are moving above the bottle
-               target = [bottleX, bottleY, self.safe_height, self.neutral_rotation]
-               speed = self.compute_velocity_to_pose(self.pose, target)
+               target = [self.bottleX, self.bottleY, self.safe_height, self.neutral_rotation[0], self.neutral_rotation[1], self.neutral_rotation[2]]
+               speed, _ = self.compute_velocity_to_pose(self.pose, target)
 
                if(success):
                    self.state = "LOWER_ON_BOTTLE"
@@ -232,8 +248,8 @@ class SystemController:
 
                #WE are lowering to pick up the bottle
                self.set_actuator("PICKUP")
-               target = [bottleX, bottleY, self.pickup_height, self.neutral_rotation]
-               speed = self.compute_velocity_to_pose(self.pose, target)
+               target = [self.bottleX, self.bottleY, self.pickup_height, self.neutral_rotation[0], self.neutral_rotation[1], self.neutral_rotation[2]]
+               speed, _ = self.compute_velocity_to_pose(self.pose, target)
 
                if(success):
                    self.state = "GO_TO_BIN"
@@ -241,7 +257,7 @@ class SystemController:
                success = False
 
                #WE are going to the correct bin
-               speed = self.compute_velocity_to_pose(self.pose, self.bin_poses(bottle_color))
+               speed, _ = self.compute_velocity_to_pose(self.pose, self.bin_poses(self.bottle_color))
 
                if (success):
                    self.state = "DROP_BOTTLE"

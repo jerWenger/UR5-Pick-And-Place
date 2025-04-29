@@ -1,7 +1,7 @@
 import cv2
 import pyrealsense2 as rs
 import numpy as np
-import bottle
+import cv_interface.bottle as bottle
 
 class CVInterface:
     def __init__(self):

@@ -158,6 +158,7 @@ class ControlGUI(QWidget):
         speed = result["speed"]
         joystick = result["joystick"]
         error = result["error"]
+        state = result["state"]
 
         mode = "Joystick" if joystick[0] == 0 else "Autonomous"
         pickup_active = "Yes" if joystick[5] else "No"
@@ -173,6 +174,7 @@ class ControlGUI(QWidget):
 
         # Update Status Label
         status_text = (
+            f"<b>Autonomous State: {state}</b><br><br>"
             "<b>UR5 TCP Pose</b><br>"
             f"X Position: {pose[0]:.3f} m<br>"
             f"Y Position: {pose[1]:.3f} m<br>"
