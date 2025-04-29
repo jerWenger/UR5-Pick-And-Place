@@ -22,6 +22,7 @@ class SystemController:
         self.rtde_c = rtde_control.RTDEControlInterface("192.168.1.103")
 
         self.cv_input = cv_interface.CVInterface()
+        self.current_bottle = None
         #self.bottle_target = ["",[],[]]
         self.belt_velocity = .1 #m/s  <--- INPUT THE REAL VALUE
         #self.UR5status = "idle"
@@ -52,19 +53,29 @@ class SystemController:
         self.margin = 0.01
         self.safe_height = 0.1
         self.pickup_height = 0.0
+        self.last_actuator_status = "None"
 
         self.neutral_rotation = [0.5, 3.0, 0.0]
 
         self.neutral_pose = [0.15, -0.4, self.safe_height, self.neutral_rotation]
 
         self.bin_poses = {
-            "green": [-0.436, -0.567, self.safe_height, self.neutral_rotation],
+            "clear": [-0.436, -0.567, self.safe_height, self.neutral_rotation],
             "blue": [-0.116, -0.636, self.safe_height, self.neutral_rotation],
             "yellow": [0.140, -0.631, self.safe_height, self.neutral_rotation],
             "shared": [0.369, -0.531, self.safe_height, self.neutral_rotation]
         }
     
-    def compute_velocity_to_pose(self, current_pose, target_pose, max_speed=1, max_angular_speed=0.5):
+    def set_actuator(self, desired_action):
+        """Wrapper for ESP To prevent sending a signal too many times"""
+        if self.last_actuator_status == desired_action:
+            pass
+        elif desired_action == "PICKUP":
+            self.joystick.write_serial(1, 0)
+        elif desired_action == "DROP":
+            self.joystick.write_serial(0,1)
+            
+    def compute_velocity_to_pose(self, current_pose, target_pose, max_speed=0.5, max_angular_speed=0.5):
         """
         Compute a 6D velocity vector (vx, vy, vz, wx, wy, wz) to move from current_pose to target_pose.
         Linear and angular velocities are scaled to avoid exceeding max_speed.
@@ -172,9 +183,17 @@ class SystemController:
         speed = [0,0,0,0,0,0]
 
         #get cv data
-        # IS CV Ready for the robot to move
-        # BOTTLE X, BOTTLE Y, BOTTLE COLOR 
+        self.update_bottle()
+        if (self.current_bottle != None) and (self.current_bottle.get_status == "ready"):
+            self.state = "MOVE_OVER_BOTTLE"
+            bottleX = self.current_bottle.get_x
+            bottleY = self.current_bottle.get_y
+            bottle_color = self.current_bottle.get_color
+        else:
+            self.state = "WAIT"
         
+
+
         #decide if we are in joystick mode operate accordingly
         if (self.joystick_data[0] == 0):
             speed[0] = self.joystick_data[1] / 3# X velocity -1 to 1 centered at 0
@@ -192,8 +211,9 @@ class SystemController:
                    self.state = "WAIT"
            elif self.state == "WAIT":
                success = False
-
+            
                #WE are waiting for the next bottle
+               speed = [0,0,0,0,0,0]
            
                if(success):
                    self.state = "MOVE_OVER_BOTTLE"
@@ -201,19 +221,26 @@ class SystemController:
                success = False
 
                #We are moving above the bottle
+               target = [bottleX, bottleY, self.safe_height, self.neutral_rotation]
+               speed = self.compute_velocity_to_pose(self.pose, target)
 
                if(success):
                    self.state = "LOWER_ON_BOTTLE"
            elif self.state == "LOWER_ON_BOTTLE":
                success = False
 
-                #WE are lowering to pick up the bottle
+               #WE are lowering to pick up the bottle
+               self.set_actuator("PICKUP")
+               target = [bottleX, bottleY, self.pickup_height, self.neutral_rotation]
+               speed = self.compute_velocity_to_pose(self.pose, target)
+
                if(success):
                    self.state = "GO_TO_BIN"
            elif self.state == "GO_TO_BIN":
                success = False
 
                #WE are going to the correct bin
+               speed = self.compute_velocity_to_pose(self.pose, self.bin_poses(bottle_color))
 
                if (success):
                    self.state = "DROP_BOTTLE"
@@ -223,17 +250,23 @@ class SystemController:
                success = False
 
                #We are dropping the bottle
+               self.set_actuator("DROP")
+
+               speed = [0,0,0,0,0,0]
 
                if(success):
                    self.state = "GO_TO_NEUTRAL"
+                   self.current_bottle = None
            elif self.state == "THROW_BOTTLE":
                success = False
 
                 #We are throwwing the bottle
+               self.set_actuator("DROP")
                speed = [0,0,0,0,0,0]
                
                if(success):
                    self.state = "GO_TO_NEUTRAL"
+                   self.current_bottle = None
            else:
                speed = [0,0,0,0,0,0]
 
