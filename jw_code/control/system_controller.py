@@ -16,7 +16,7 @@ class SystemController:
         Initializes the system controller with instances of the CV and ESP interfaces.
         """
         #Initialize interfaces
-        self.joystick = esp.ESPInterface('/dev/ttyACM0') #Change this to your port
+        self.joystick = esp.ESPInterface('COM3') #Change this to your port
 
         self.rtde_r = rtde_receive.RTDEReceiveInterface("192.168.1.103")
         self.rtde_c = rtde_control.RTDEControlInterface("192.168.1.103")
@@ -25,7 +25,7 @@ class SystemController:
         self.current_bottle = None
         #self.bottle_target = ["",[],[]]
         self.belt_velocity = .1 #m/s  <--- INPUT THE REAL VALUE
-        #self.UR5status = "idle"
+        
         # status options: idle, prep, pickup, drop, reset
         #self.dropped = False
 
@@ -150,19 +150,20 @@ class SystemController:
 
         return limited_speed
 
-    def update_bottle(self):
+    def update_bottle(self, timestep = .1):
         first, _ = self.cv_input.bottle_identification()
-        if first and self.UR5status == "idle": #if there was no bottle, create one
-            self.current_bottle = first
-            self.UR5status = "prep"
-        elif first and self.UR5status == "prep":
-            self.current_bottle = first.update(self.current_bottle)
+        if self.current_bottle == None: #if there was no bottle, create one
+            if first:
+                self.current_bottle = first
+        else: #current bottle is not None
+            # elif first and self.UR5status == "prep":
+            #     self.current_bottle = first.update(self.current_bottle)
             if self.current_bottle.get_status() == "ready":
-                self.UR5status = "pickup"
-        elif self.UR5status == "ready":
-            self.current_bottle.step_pos()
-
-
+                #self.state = "MOVE_OVER_BOTTLE"
+                self.current_bottle.step_pos()
+            elif first:
+                self.current_bottle = first.update(self.current_bottle, timestep)
+       
     def step(self):
         """
         Perform a single control step. This method can be called repeatedly in a loop or manually.
@@ -183,7 +184,7 @@ class SystemController:
         speed = [0,0,0,0,0,0]
 
         #get cv data
-        self.update_bottle()
+        self.update_bottle(self.dt)
         if (self.current_bottle != None) and (self.current_bottle.get_status == "ready"):
             self.state = "MOVE_OVER_BOTTLE"
             bottleX = self.current_bottle.get_x
@@ -281,7 +282,6 @@ class SystemController:
         "pose": pose,
         "speed": speed,
         "joystick": self.joystick_data,
-        "status": self.UR5status,
         "error": self.error,
         "state": self.state
         }

@@ -13,8 +13,8 @@ class CVInterface:
         # Initialize pipeline and config
         self.pipeline = rs.pipeline()
         config = rs.config()
-        config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
-        config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+        config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, framerate = 15)
+        config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, framerate = 15)
 
         # Start streaming
         self.profile = self.pipeline.start(config)
@@ -201,11 +201,19 @@ class CVInterface:
         
 if __name__=="__main__":
     CV = CVInterface()
+    test_bot = None
     #CV.set_camera_resolution(640, 480)
     #CV.set_camera_fps(10)
     while True:
         results, display = CV.bottle_identification()
-        #print(results)
+        if results and test_bot == None:
+            test_bot = results
+        elif results and test_bot != None:
+            results.update(test_bot, 1/30)
+            test_bot = results
+            print(test_bot)
+        else:
+            test_bot = None
         
         # show the image
         cv2.imshow("Output", display)

@@ -43,14 +43,13 @@ class Bottle():
     def same_as(self, other):
         return other.color == self.color and abs(other.get_x() - self.x) <= 0.1 and abs(other.get_y() - self.y) <= 0.1
             
-    def update(self, old):
+    def update(self, old, timestep = 1/30):
         if self.same_as(old):
             #self bottle is kept, old bottle gets deleted
             old_x, old_y = old.get_pos()
             x = self.x
-            dt = .1 #at 10 fps
             alpha = 0.5 #lp filter constant
-            new_v = (x-old_x)/dt
+            new_v = (x-old_x)/timestep
             self.velocity = alpha*old.get_velocity() + (1-alpha)*new_v
 
     def step_pos(self):
