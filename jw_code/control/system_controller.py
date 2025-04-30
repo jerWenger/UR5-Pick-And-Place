@@ -8,7 +8,7 @@ import esp_interface.esp_interface as esp
 import signal
 import sys
 import cv2
-#from cv_interface import cv_interface
+import math
 from cv_interface import depth_integrated
 import cv_interface.bottle as bottle
 
@@ -18,14 +18,17 @@ class SystemController:
         Initializes the system controller with instances of the CV and ESP interfaces.
         """
         #Initialize interfaces
+
+        #Connect to ESP and set joystick scalars
         self.joystick = esp.ESPInterface('/dev/ttyACM0') #Change this to your port
         self.JOYSTICK_SCALE_XY = 1/3
         self.JOYSTICK_SCALE_Z = 1/5
 
+        #Connect to UR5
         self.rtde_r = rtde_receive.RTDEReceiveInterface("192.168.1.103")
         self.rtde_c = rtde_control.RTDEControlInterface("192.168.1.103")
 
-        #self.cv_input = cv_interface.CVInterface()
+        #Connect to real sense and set some tuning parameters
         self.cv_last_time = 0
         self.cv_time_step = 0.2
         self.cv_input = depth_integrated.CVInterface()
@@ -65,7 +68,7 @@ class SystemController:
         self.pickup_height = 0.0
         self.last_actuator_status = "None"
 
-        self.neutral_rotation = [0.5, 3.0, 0.0]
+        self.neutral_rotation = [1.6 , -2.6, 0.0]
 
         self.neutral_pose = self.make_pose(0.15, -0.4, self.safe_height)
 
@@ -87,7 +90,7 @@ class SystemController:
             self.joystick.write_serial(0,1)
             self.last_actuator_status = desired_action
             
-    def compute_velocity_to_pose(self, current_pose, target_pose, max_speed=0.5, max_angular_speed=0.5):
+    def compute_velocity_to_pose(self, current_pose, target_pose, max_speed=0.75, max_angular_speed=0.5):
         """
         Compute a 6D velocity vector (vx, vy, vz, wx, wy, wz) to move from current_pose to target_pose.
         Linear and angular velocities are scaled to avoid exceeding max_speed.
@@ -163,7 +166,7 @@ class SystemController:
             limited_speed[0] = min(speed[0], 0)
 
         # Y axis limits
-        if self.pose[1] > -0.1:
+        if self.pose[1] > -0.25:
             limited_speed[1] = min(speed[1], 0)
         elif self.pose[1] < -0.8:
             limited_speed[1] = max(speed[1], 0)
@@ -219,10 +222,10 @@ class SystemController:
             cv2.waitKey(1)
 
             if self.current_bottle is not None:
-                self.bottleX = self.current_bottle.get_x()
-                self.bottleY = self.current_bottle.get_y()
+                self.bottleX = round(0.1 + self.current_bottle.get_x(), 4)
+                self.bottleY = round(-0.4 + self.current_bottle.get_y(), 4)
                 self.bottle_color = self.current_bottle.get_color()
-                print(f"BottleX: {self.bottleX}, BottleY: {self.bottleY}")
+                print(f"Bottle Color: {self.bottle_color}, BottleX: {self.bottleX}, BottleY: {self.bottleY}")
         
 
 
@@ -259,8 +262,8 @@ class SystemController:
                speed, _ = self.compute_velocity_to_pose(self.pose, target)
 
                #Evaluate success criteria (Over top of bottle)
-               if(self.is_pose_reached()):
-                   self.state = "LOWER_ON_BOTTLE"
+               #if(self.is_pose_reached()):
+                   #elf.state = "LOWER_ON_BOTTLE"
            elif self.state == "LOWER_ON_BOTTLE":
                success = False
 
