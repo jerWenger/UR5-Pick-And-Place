@@ -78,7 +78,7 @@ class SystemController:
         self.safe_height = 0.2
         self.pickup_height = 0.0
         self.last_actuator_status = "None"
-        self.low_height = 0.05
+        self.low_height = 0.1
 
         self.neutral_pose = self.make_pose(0.15, -0.4, self.safe_height)
 
@@ -88,10 +88,16 @@ class SystemController:
             "yellow": self.make_pose(0.140, -0.69, self.safe_height),
             "shared": self.make_pose(0.39, -0.69, self.safe_height)
         }
+        self.bin_poses_tilt = {
+            "clear": [-0.42, -0.69, self.low_height, self.neutral_rotation[0]-0.4, self.neutral_rotation[1], self.neutral_rotation[2]],
+            "blue": [-0.12, -0.69, self.low_height, self.neutral_rotation[0]-0.4, self.neutral_rotation[1], self.neutral_rotation[2]],
+            "yellow": [0.14, -0.69, self.low_height, self.neutral_rotation[0]-0.4, self.neutral_rotation[1], self.neutral_rotation[2]],
+            "shared": self.make_pose(0.39, -0.69, self.low_height)
+        }
         self.bin_throw_poses = {
-            "clear": [0.593, -0.717, self.low_height, self.neutral_rotation[0], self.neutral_rotation[1]-0.4, self.neutral_rotation[2]],
+            "clear": [-0.42, -0.8, self.low_height, self.neutral_rotation[0]-0.4, self.neutral_rotation[1], self.neutral_rotation[2]],
             "blue": [-0.12, -0.8, self.low_height, self.neutral_rotation[0]-0.4, self.neutral_rotation[1], self.neutral_rotation[2]],
-            "yellow": [0.877, -0.277, self.low_height, self.neutral_rotation[0], self.neutral_rotation[1]-0.4, self.neutral_rotation[2]],
+            "yellow": [0.14, -0.8, self.low_height, self.neutral_rotation[0]-0.4, self.neutral_rotation[1], self.neutral_rotation[2]],
         }
     
     def set_actuator(self, desired_action):
@@ -303,7 +309,7 @@ class SystemController:
                self.bottle_color = "blue"
 
                #WE are going to the correct bin
-               speed, _ = self.compute_velocity_to_pose(self.pose, self.bin_poses[self.bottle_color])
+               speed, _ = self.compute_velocity_to_pose(self.pose, self.bin_poses_tilt[self.bottle_color])
 
                #Evaluate success criteria (We have made it to the bin)
                if (self.is_pose_reached()):
