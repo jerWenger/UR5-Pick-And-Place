@@ -44,6 +44,17 @@ class SystemController:
         self.pose = self.rtde_r.getActualTCPPose()
         self.running = True
 
+        # Move to known joint-space neutral position
+        neutral_joint_pose = [-4.68, -1.2, 2.35, -2.73, -1.56, 0.00]
+        print("Sending Robot Home")
+        self.rtde_c.moveJ(neutral_joint_pose)
+
+        time.sleep(2)
+        # Get the actual TCP pose and extract rotation
+        tcp_pose = self.rtde_r.getActualTCPPose()
+        self.neutral_rotation = tcp_pose[3:6]
+        print(f"Neutral Position Set: {self.neutral_rotation}")
+
         # Autonomous path parameters
         self.last_rot_error = np.zeros(3)
         self.error = [0,0,0,0]
@@ -68,15 +79,13 @@ class SystemController:
         self.pickup_height = 0.0
         self.last_actuator_status = "None"
 
-        self.neutral_rotation = [1.6 , -2.6, 0.0]
-
         self.neutral_pose = self.make_pose(0.15, -0.4, self.safe_height)
 
         self.bin_poses = {
-            "clear": self.make_pose(-0.436, -0.567, self.safe_height),
-            "blue": self.make_pose(-0.116, -0.636, self.safe_height),
-            "yellow": self.make_pose(0.140, -0.631, self.safe_height),
-            "shared": self.make_pose(0.369, -0.531, self.safe_height)
+            "clear": self.make_pose(-0.42, -0.69, self.safe_height),
+            "blue": self.make_pose(-0.12, -0.69, self.safe_height),
+            "yellow": self.make_pose(0.140, -0.69, self.safe_height),
+            "shared": self.make_pose(0.39, -0.69, self.safe_height)
         }
     
     def set_actuator(self, desired_action):
@@ -187,11 +196,13 @@ class SystemController:
         else: #current bottle is not None
             # elif first and self.UR5status == "prep":
             #     self.current_bottle = first.update(self.current_bottle)
-            if self.current_bottle.get_status() == "ready":
+            #if self.current_bottle.get_status() == "ready":
                 #self.state = "MOVE_OVER_BOTTLE"
-                self.current_bottle.step_pos()
-            elif first:
-                self.current_bottle = first.update(self.current_bottle, timestep)
+                #print("D")
+                #self.current_bottle.step_pos()
+            #elif first:
+                #print("E")
+            self.current_bottle = first.update(self.current_bottle, timestep)
         return display
     
     def step(self):
@@ -222,7 +233,7 @@ class SystemController:
             cv2.waitKey(1)
 
             if self.current_bottle is not None:
-                self.bottleX = round(0.1 + self.current_bottle.get_x(), 4)
+                self.bottleX = round(0.15 + self.current_bottle.get_x(), 4)
                 self.bottleY = round(-0.4 + self.current_bottle.get_y(), 4)
                 self.bottle_color = self.current_bottle.get_color()
                 print(f"Bottle Color: {self.bottle_color}, BottleX: {self.bottleX}, BottleY: {self.bottleY}")
