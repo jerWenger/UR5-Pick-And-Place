@@ -7,8 +7,10 @@ import numpy as np
 import esp_interface.esp_interface as esp
 import signal
 import sys
-from cv_interface import cv_interface
-from cv_interface import bottle
+import cv2
+import math
+from cv_interface import depth_integrated
+import cv_interface.bottle as bottle
 
 class SystemController:
     def __init__(self):
@@ -16,31 +18,52 @@ class SystemController:
         Initializes the system controller with instances of the CV and ESP interfaces.
         """
         #Initialize interfaces
-        self.joystick = esp.ESPInterface('COM3') #Change this to your port
 
+        #Connect to ESP and set joystick scalars
+        self.joystick = esp.ESPInterface('/dev/ttyACM0') #Change this to your port
+        self.JOYSTICK_SCALE_XY = 1/3
+        self.JOYSTICK_SCALE_Z = 1/5
+
+        #Connect to UR5
         self.rtde_r = rtde_receive.RTDEReceiveInterface("192.168.1.103")
         self.rtde_c = rtde_control.RTDEControlInterface("192.168.1.103")
 
-        self.cv_input = cv_interface.CVInterface()
+        #Connect to real sense and set some tuning parameters
+        self.cv_last_time = 0
+        self.cv_time_step = 0.2
+        self.cv_input = depth_integrated.CVInterface()
         self.current_bottle = None
-        #self.bottle_target = ["",[],[]]
         self.belt_velocity = .1 #m/s  <--- INPUT THE REAL VALUE
-        
-        # status options: idle, prep, pickup, drop, reset
-        #self.dropped = False
+
+        #bottle pose
+        self.bottleX = None
+        self.bottleY = None
+        self.bottle_color = None
 
         #get initial pose
         self.pose = self.rtde_r.getActualTCPPose()
         self.running = True
 
+        # Move to known joint-space neutral position
+        neutral_joint_pose = [-4.68, -1.2, 2.35, -2.73, -1.56, 0.00]
+        print("Sending Robot Home")
+        self.rtde_c.moveJ(neutral_joint_pose)
+
+        time.sleep(2)
+        # Get the actual TCP pose and extract rotation
+        tcp_pose = self.rtde_r.getActualTCPPose()
+        self.neutral_rotation = tcp_pose[3:6]
+        print(f"Neutral Position Set: {self.neutral_rotation}")
+
         # Autonomous path parameters
-        #self.lookahead_distance = 0.02  # How close before switching to next point
         self.last_rot_error = np.zeros(3)
         self.error = [0,0,0,0]
 
         #Timing code for pd controller
         self.last_time = time.time()
         self.dt = 0.005 
+
+
 
         #Timing for testing PD gains
         self.switch_interval = 5.0  # seconds between switches
@@ -50,20 +73,25 @@ class SystemController:
         #state machine
         self.state = "GO_TO_NEUTRAL"
         self.throw = False
-        self.margin = 0.01
-        self.safe_height = 0.1
+        self.linear_margin = 0.01
+        self.rotation_margin = 0.3
+        self.safe_height = 0.2
         self.pickup_height = 0.0
         self.last_actuator_status = "None"
+        self.low_height = 0.05
 
-        self.neutral_rotation = [0.5, 3.0, 0.0]
-
-        self.neutral_pose = [0.15, -0.4, self.safe_height, self.neutral_rotation]
+        self.neutral_pose = self.make_pose(0.15, -0.4, self.safe_height)
 
         self.bin_poses = {
-            "clear": [-0.436, -0.567, self.safe_height, self.neutral_rotation],
-            "blue": [-0.116, -0.636, self.safe_height, self.neutral_rotation],
-            "yellow": [0.140, -0.631, self.safe_height, self.neutral_rotation],
-            "shared": [0.369, -0.531, self.safe_height, self.neutral_rotation]
+            "clear": self.make_pose(-0.42, -0.69, self.safe_height),
+            "blue": self.make_pose(-0.12, -0.69, self.safe_height),
+            "yellow": self.make_pose(0.140, -0.69, self.safe_height),
+            "shared": self.make_pose(0.39, -0.69, self.safe_height)
+        }
+        self.bin_throw_poses = {
+            "clear": [0.593, -0.717, self.low_height, self.neutral_rotation[0], self.neutral_rotation[1]-0.4, self.neutral_rotation[2]],
+            "blue": [-0.12, -0.8, self.low_height, self.neutral_rotation[0]-0.4, self.neutral_rotation[1], self.neutral_rotation[2]],
+            "yellow": [0.877, -0.277, self.low_height, self.neutral_rotation[0], self.neutral_rotation[1]-0.4, self.neutral_rotation[2]],
         }
     
     def set_actuator(self, desired_action):
@@ -72,10 +100,12 @@ class SystemController:
             pass
         elif desired_action == "PICKUP":
             self.joystick.write_serial(1, 0)
+            self.last_actuator_status = desired_action
         elif desired_action == "DROP":
             self.joystick.write_serial(0,1)
+            self.last_actuator_status = desired_action
             
-    def compute_velocity_to_pose(self, current_pose, target_pose, max_speed=0.5, max_angular_speed=0.5):
+    def compute_velocity_to_pose(self, current_pose, target_pose, max_speed=1, max_angular_speed=1):
         """
         Compute a 6D velocity vector (vx, vy, vz, wx, wy, wz) to move from current_pose to target_pose.
         Linear and angular velocities are scaled to avoid exceeding max_speed.
@@ -117,13 +147,27 @@ class SystemController:
         # --- Combine
         velocity_command = np.concatenate((linear_velocity, angular_velocity))
 
+        #Sum errors
+        rot_error_norm = np.linalg.norm(rot_error)
+
         # --- Save errors for next step
         self.last_rot_error = rot_error.copy()
-        self.error = [pos_error, distance, rot_error, np.linalg.norm(rot_error)]
+        self.error = [pos_error, distance, rot_error, rot_error_norm]
 
         return velocity_command.tolist(), distance
 
+    def make_pose(self, x, y, z):
+        """
+        Simple helper method to apply the neutral rotation to a pose
+        """
+        return [x, y, z, *self.neutral_rotation]
     
+    def is_pose_reached(self):
+        """
+        A simple helper method to see if the error is below our margins
+        """
+        return self.error[1] <= self.linear_margin and self.error[3] <= self.rotation_margin
+
     def apply_software_limits(self, speed):
         """
         Enforces software-defined workspace limits regardless of control mode.
@@ -137,7 +181,7 @@ class SystemController:
             limited_speed[0] = min(speed[0], 0)
 
         # Y axis limits
-        if self.pose[1] > -0.1:
+        if self.pose[1] > -0.25:
             limited_speed[1] = min(speed[1], 0)
         elif self.pose[1] < -0.8:
             limited_speed[1] = max(speed[1], 0)
@@ -151,19 +195,22 @@ class SystemController:
         return limited_speed
 
     def update_bottle(self, timestep = .1):
-        first, _ = self.cv_input.bottle_identification()
+        first, display = self.cv_input.bottle_identification()
         if self.current_bottle == None: #if there was no bottle, create one
             if first:
                 self.current_bottle = first
         else: #current bottle is not None
             # elif first and self.UR5status == "prep":
             #     self.current_bottle = first.update(self.current_bottle)
-            if self.current_bottle.get_status() == "ready":
+            #if self.current_bottle.get_status() == "ready":
                 #self.state = "MOVE_OVER_BOTTLE"
-                self.current_bottle.step_pos()
-            elif first:
-                self.current_bottle = first.update(self.current_bottle, timestep)
-       
+                #print("D")
+                #self.current_bottle.step_pos()
+            #elif first:
+                #print("E")
+            self.current_bottle = first.update(self.current_bottle, timestep)
+        return display
+    
     def step(self):
         """
         Perform a single control step. This method can be called repeatedly in a loop or manually.
@@ -184,69 +231,88 @@ class SystemController:
         speed = [0,0,0,0,0,0]
 
         #get cv data
-        self.update_bottle(self.dt)
-        if (self.current_bottle != None) and (self.current_bottle.get_status == "ready"):
-            self.state = "MOVE_OVER_BOTTLE"
-            bottleX = self.current_bottle.get_x
-            bottleY = self.current_bottle.get_y
-            bottle_color = self.current_bottle.get_color
-        else:
-            self.state = "WAIT"
+        cv_dt = now - self.cv_last_time
+        if (cv_dt >= self.cv_time_step):
+            self.cv_last_time = now
+            display = self.update_bottle(cv_dt)
+            cv2.imshow("Output", display)
+            cv2.waitKey(1)
+
+            if self.current_bottle is not None:
+                self.bottleX = round(0.15 + self.current_bottle.get_x(), 4)
+                self.bottleY = round(-0.4 + self.current_bottle.get_y(), 4)
+                self.bottle_color = self.current_bottle.get_color()
+                #print(f"Bottle Color: {self.bottle_color}, BottleX: {self.bottleX}, BottleY: {self.bottleY}")
         
 
 
         #decide if we are in joystick mode operate accordingly
         if (self.joystick_data[0] == 0):
-            speed[0] = self.joystick_data[1] / 3# X velocity -1 to 1 centered at 0
-            speed[1] = self.joystick_data[2] / 3 # Y velocity -1 to 1 centered at 0
-            speed[2] = self.joystick_data[3] / 5 # Z velocity -1 to 1 centered at 0
-            speed[3] = self.joystick_data[4] / 3# Omega velocity -1 to 1 cetnered at 0
+            speed[0] = self.joystick_data[1] * self.JOYSTICK_SCALE_XY # X velocity -1 to 1 centered at 0
+            speed[1] = self.joystick_data[2] * self.JOYSTICK_SCALE_XY # Y velocity -1 to 1 centered at 0
+            speed[2] = self.joystick_data[3] * self.JOYSTICK_SCALE_Z # Z velocity -1 to 1 centered at 0
+            speed[3] = self.joystick_data[4] * self.JOYSTICK_SCALE_XY# Omega velocity -1 to 1 centered at 0
+        
         elif(self.joystick_data[0] == 1):
+           
            #Autonomous mode
            if self.state == "GO_TO_NEUTRAL":
-               success = False
-
                #WE are moving to neutral
+               target = self.neutral_pose
+               speed, _ = self.compute_velocity_to_pose(self.pose, target)
+               #temporary control during auto for testing
+               if self.joystick_data[5] == 1:
+                     self.state = "GO_TO_BIN"
+               else:
+                     self.state = "GO_TO_NEUTRAL"
 
-               if (success):
-                   self.state = "WAIT"
+               #evaluate success criteria
+               #if (self.is_pose_reached()):
+               #    self.state = "WAIT"
            elif self.state == "WAIT":
-               success = False
-            
-               #WE are waiting for the next bottle
+               #WE are waiting for the next bottle       
                speed = [0,0,0,0,0,0]
-           
-               if(success):
-                   self.state = "MOVE_OVER_BOTTLE"
+        
+               #evaluate success criteria
+               if self.bottleX is not None and self.bottleY is not None:
+                    self.state = "MOVE_OVER_BOTTLE"
            elif self.state == "MOVE_OVER_BOTTLE":
                success = False
 
                #We are moving above the bottle
-               target = [bottleX, bottleY, self.safe_height, self.neutral_rotation]
-               speed = self.compute_velocity_to_pose(self.pose, target)
+               target = self.make_pose(self.bottleX, self.bottleY, self.safe_height)
+               speed, _ = self.compute_velocity_to_pose(self.pose, target)
 
-               if(success):
-                   self.state = "LOWER_ON_BOTTLE"
+               #Evaluate success criteria (Over top of bottle)
+               #if(self.is_pose_reached()):
+                   #elf.state = "LOWER_ON_BOTTLE"
            elif self.state == "LOWER_ON_BOTTLE":
                success = False
 
                #WE are lowering to pick up the bottle
                self.set_actuator("PICKUP")
-               target = [bottleX, bottleY, self.pickup_height, self.neutral_rotation]
-               speed = self.compute_velocity_to_pose(self.pose, target)
+               target = self.make_pose(self.bottleX, self.bottleY, self.pickup_height)
+               speed, _ = self.compute_velocity_to_pose(self.pose, target)
 
+               #evaluate success criteria (Bottle has been picked up / we have completely lowered)
                if(success):
                    self.state = "GO_TO_BIN"
            elif self.state == "GO_TO_BIN":
                success = False
+               #temporarily foce bottle color to blue for testing
+               self.bottle_color = "blue"
 
                #WE are going to the correct bin
-               speed = self.compute_velocity_to_pose(self.pose, self.bin_poses(bottle_color))
+               speed, _ = self.compute_velocity_to_pose(self.pose, self.bin_poses[self.bottle_color])
 
-               if (success):
-                   self.state = "DROP_BOTTLE"
-               elif (success and self.throw):
-                   self.state = "THROW_BOTTLE"
+               #Evaluate success criteria (We have made it to the bin)
+               if (self.is_pose_reached()):
+                  #force into throw for testing purposes
+                  self.throw = True
+                  if self.throw:
+                     self.state = "THROW_BOTTLE"
+                  else:
+                     self.state = "DROP_BOTTLE"
            elif self.state == "DROP_BOTTLE":
                success = False
 
@@ -255,17 +321,45 @@ class SystemController:
 
                speed = [0,0,0,0,0,0]
 
+               #Evaluate success criteria (Bottle has been dropped)
                if(success):
                    self.state = "GO_TO_NEUTRAL"
                    self.current_bottle = None
            elif self.state == "THROW_BOTTLE":
                success = False
 
-                #We are throwwing the bottle
-               self.set_actuator("DROP")
-               speed = [0,0,0,0,0,0]
+                #We are throwing the bottle
+               self.bottle_color = "blue" #force color for testing
+               if self.bottle_color == "blue":
+                   target = self.bin_throw_poses["blue"]
+                   speed, _ = self.compute_velocity_to_pose(self.pose, target)
+                   if self.error[1] < 0.1: #throw before reaching the pose
+                       print("Dropping")
+                       self.set_actuator("DROP")
+                   if self.is_pose_reached():
+                       success = True
+
+               elif self.bottle_color == "yellow":
+                    target = self.bin_throw_poses["yellow"]
+                    speed, _ = self.compute_velocity_to_pose(self.pose, target)
+                    if self.error[1] < 0.1:
+                        self.set_actuator("DROP")
+                    if self.is_pose_reached():
+                        success = True
+
+               elif self.bottle_color == "clear":
+                    target = self.bin_throw_poses["clear"]
+                    speed, _ = self.compute_velocity_to_pose(self.pose, target)
+                    if self.error[1] < 0.1:
+                        self.set_actuator("DROP")
+                    if self.is_pose_reached():
+                        success = True
+ 
+               #self.set_actuator("DROP")
+               #speed = [0,0,0,0,0,0]
                
                if(success):
+                   speed = [0,0,0,0,0,0]
                    self.state = "GO_TO_NEUTRAL"
                    self.current_bottle = None
            else:

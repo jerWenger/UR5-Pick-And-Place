@@ -32,7 +32,7 @@ signal.signal(signal.SIGINT, signal_handler)
 while True:
 
     #get current pose
-    pose = rtde_r.getAtualTCPPose()
+    pose = rtde_r.getActualQ()
     
     #Read the Joystick
     got_joystick, joystick_data = joystick.read_serial()
