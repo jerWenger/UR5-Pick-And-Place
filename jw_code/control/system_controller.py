@@ -78,6 +78,7 @@ class SystemController:
         self.safe_height = 0.1
         self.pickup_height = 0.0
         self.last_actuator_status = "None"
+        self.low_height = -0.33
 
         self.neutral_pose = self.make_pose(0.15, -0.4, self.safe_height)
 
@@ -86,6 +87,11 @@ class SystemController:
             "blue": self.make_pose(-0.12, -0.69, self.safe_height),
             "yellow": self.make_pose(0.140, -0.69, self.safe_height),
             "shared": self.make_pose(0.39, -0.69, self.safe_height)
+        }
+        self.bin_throw_poses = {
+            "clear": [0.593, -0.717, self.low_height, self.neutral_rotation[0], self.neutral_rotation[1]-0.4, self.neutral_rotation[2]],
+            "blue": [0.762, -0.337, self.low_height, self.neutral_rotation[0], self.neutral_rotation[1]-0.4, self.neutral_rotation[2]],
+            "yellow": [0.877, -0.277, self.low_height, self.neutral_rotation[0], self.neutral_rotation[1]-0.4, self.neutral_rotation[2]],
         }
     
     def set_actuator(self, desired_action):
@@ -254,10 +260,15 @@ class SystemController:
                #WE are moving to neutral
                target = self.neutral_pose
                speed, _ = self.compute_velocity_to_pose(self.pose, target)
+               #temporary control during auto for testing
+               if self.joystick_data[5] == 1:
+                     self.state = "GO_TO_BIN"
+               else:
+                     self.state = "GO_TO_NEUTRAL"
 
                #evaluate success criteria
-               if (self.is_pose_reached()):
-                   self.state = "WAIT"
+               #if (self.is_pose_reached()):
+               #    self.state = "WAIT"
            elif self.state == "WAIT":
                #WE are waiting for the next bottle       
                speed = [0,0,0,0,0,0]
@@ -288,12 +299,16 @@ class SystemController:
                    self.state = "GO_TO_BIN"
            elif self.state == "GO_TO_BIN":
                success = False
+               #temporarily foce bottle color to blue for testing
+               self.bottle_color = "blue"
 
                #WE are going to the correct bin
                speed, _ = self.compute_velocity_to_pose(self.pose, self.bin_poses[self.bottle_color])
 
                #Evaluate success criteria (We have made it to the bin)
                if (self.is_pose_reached()):
+                  #force into throw for testing purposes
+                  self.throw = True
                   if self.throw:
                      self.state = "THROW_BOTTLE"
                   else:
@@ -314,10 +329,36 @@ class SystemController:
                success = False
 
                 #We are throwing the bottle
-               self.set_actuator("DROP")
-               speed = [0,0,0,0,0,0]
+               self.bottle_color = "blue" #force color for testing
+               if self.bottle_color == "blue":
+                   target = self.bin_throw_poses["blue"]
+                   speed, _ = self.compute_velocity_to_pose(self.pose, target)
+                   if self.error[1] < 0.1: #throw before reaching the pose
+                       self.set_actuator("DROP")
+                   if self.is_pose_reached():
+                       success = True
+
+               elif self.bottle_color == "yellow":
+                    target = self.bin_throw_poses["yellow"]
+                    speed, _ = self.compute_velocity_to_pose(self.pose, target)
+                    if self.error[1] < 0.1:
+                        self.set_actuator("DROP")
+                    if self.is_pose_reached():
+                        success = True
+
+               elif self.bottle_color == "clear":
+                    target = self.bin_throw_poses["clear"]
+                    speed, _ = self.compute_velocity_to_pose(self.pose, target)
+                    if self.error[1] < 0.1:
+                        self.set_actuator("DROP")
+                    if self.is_pose_reached():
+                        success = True
+ 
+               #self.set_actuator("DROP")
+               #speed = [0,0,0,0,0,0]
                
                if(success):
+                   speed = [0,0,0,0,0,0]
                    self.state = "GO_TO_NEUTRAL"
                    self.current_bottle = None
            else:
