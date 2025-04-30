@@ -75,10 +75,10 @@ class SystemController:
         self.throw = False
         self.linear_margin = 0.01
         self.rotation_margin = 0.3
-        self.safe_height = 0.1
+        self.safe_height = 0.2
         self.pickup_height = 0.0
         self.last_actuator_status = "None"
-        self.low_height = -0.33
+        self.low_height = 0.05
 
         self.neutral_pose = self.make_pose(0.15, -0.4, self.safe_height)
 
@@ -90,7 +90,7 @@ class SystemController:
         }
         self.bin_throw_poses = {
             "clear": [0.593, -0.717, self.low_height, self.neutral_rotation[0], self.neutral_rotation[1]-0.4, self.neutral_rotation[2]],
-            "blue": [0.762, -0.337, self.low_height, self.neutral_rotation[0], self.neutral_rotation[1]-0.4, self.neutral_rotation[2]],
+            "blue": [-0.12, -0.8, self.low_height, self.neutral_rotation[0]-0.4, self.neutral_rotation[1], self.neutral_rotation[2]],
             "yellow": [0.877, -0.277, self.low_height, self.neutral_rotation[0], self.neutral_rotation[1]-0.4, self.neutral_rotation[2]],
         }
     
@@ -105,7 +105,7 @@ class SystemController:
             self.joystick.write_serial(0,1)
             self.last_actuator_status = desired_action
             
-    def compute_velocity_to_pose(self, current_pose, target_pose, max_speed=0.75, max_angular_speed=0.5):
+    def compute_velocity_to_pose(self, current_pose, target_pose, max_speed=1, max_angular_speed=1):
         """
         Compute a 6D velocity vector (vx, vy, vz, wx, wy, wz) to move from current_pose to target_pose.
         Linear and angular velocities are scaled to avoid exceeding max_speed.
@@ -242,7 +242,7 @@ class SystemController:
                 self.bottleX = round(0.15 + self.current_bottle.get_x(), 4)
                 self.bottleY = round(-0.4 + self.current_bottle.get_y(), 4)
                 self.bottle_color = self.current_bottle.get_color()
-                print(f"Bottle Color: {self.bottle_color}, BottleX: {self.bottleX}, BottleY: {self.bottleY}")
+                #print(f"Bottle Color: {self.bottle_color}, BottleX: {self.bottleX}, BottleY: {self.bottleY}")
         
 
 
@@ -334,6 +334,7 @@ class SystemController:
                    target = self.bin_throw_poses["blue"]
                    speed, _ = self.compute_velocity_to_pose(self.pose, target)
                    if self.error[1] < 0.1: #throw before reaching the pose
+                       print("Dropping")
                        self.set_actuator("DROP")
                    if self.is_pose_reached():
                        success = True
