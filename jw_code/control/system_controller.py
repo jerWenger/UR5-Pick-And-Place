@@ -89,15 +89,15 @@ class SystemController:
             "shared": self.make_pose(0.39, -0.69, self.safe_height)
         }
         self.bin_poses_tilt = {
-            "clear": [-0.42, -0.69, self.low_height, self.neutral_rotation[0]-0.4, self.neutral_rotation[1], self.neutral_rotation[2]],
-            "blue": [-0.12, -0.69, self.low_height, self.neutral_rotation[0]-0.4, self.neutral_rotation[1], self.neutral_rotation[2]],
-            "yellow": [0.14, -0.69, self.low_height, self.neutral_rotation[0]-0.4, self.neutral_rotation[1], self.neutral_rotation[2]],
-            "shared": self.make_pose(0.39, -0.69, self.low_height)
+            "clear": [-0.42, -0.74, self.low_height, self.neutral_rotation[0]-0.4, self.neutral_rotation[1], self.neutral_rotation[2]],
+            "blue": self.make_pose(-0.12, -0.44, self.safe_height+0.2),
+            "yellow": [0.14, -0.74, self.low_height, self.neutral_rotation[0]-0.4, self.neutral_rotation[1], self.neutral_rotation[2]],
+            "shared": [0.39, -0.74, self.low_height, self.neutral_rotation[0]-0.4, self.neutral_rotation[1], self.neutral_rotation[2]],
         }
         self.bin_throw_poses = {
-            "clear": [-0.42, -0.8, self.low_height, self.neutral_rotation[0]-0.4, self.neutral_rotation[1], self.neutral_rotation[2]],
-            "blue": [-0.12, -0.8, self.low_height, self.neutral_rotation[0]-0.4, self.neutral_rotation[1], self.neutral_rotation[2]],
-            "yellow": [0.14, -0.8, self.low_height, self.neutral_rotation[0]-0.4, self.neutral_rotation[1], self.neutral_rotation[2]],
+            "clear": [-0.42, -0.84, self.low_height, self.neutral_rotation[0]-0.4, self.neutral_rotation[1], self.neutral_rotation[2]],
+            "blue": self.make_pose(-0.12, -0.84, self.safe_height+0.2),
+            "yellow": [0.14, -0.84, self.low_height, self.neutral_rotation[0]-0.4, self.neutral_rotation[1], self.neutral_rotation[2]],
         }
     
     def set_actuator(self, desired_action):
@@ -111,7 +111,7 @@ class SystemController:
             self.joystick.write_serial(0,1)
             self.last_actuator_status = desired_action
             
-    def compute_velocity_to_pose(self, current_pose, target_pose, max_speed=1, max_angular_speed=1):
+    def compute_velocity_to_pose(self, current_pose, target_pose, max_speed=4, max_angular_speed=0.5):
         """
         Compute a 6D velocity vector (vx, vy, vz, wx, wy, wz) to move from current_pose to target_pose.
         Linear and angular velocities are scaled to avoid exceeding max_speed.
@@ -189,11 +189,11 @@ class SystemController:
         # Y axis limits
         if self.pose[1] > -0.25:
             limited_speed[1] = min(speed[1], 0)
-        elif self.pose[1] < -0.8:
+        elif self.pose[1] < -0.85:
             limited_speed[1] = max(speed[1], 0)
 
         # Z axis limits
-        if self.pose[2] > 0.25:
+        if self.pose[2] > 0.5:
             limited_speed[2] = min(speed[2], 0)
         elif self.pose[2] < -0.06:
             limited_speed[2] = max(speed[2], 0)
@@ -266,10 +266,13 @@ class SystemController:
                #WE are moving to neutral
                target = self.neutral_pose
                speed, _ = self.compute_velocity_to_pose(self.pose, target)
+               
                #temporary control during auto for testing
                if self.joystick_data[5] == 1:
+                     
                      self.state = "GO_TO_BIN"
                else:
+                     self.set_actuator("PICKUP")
                      self.state = "GO_TO_NEUTRAL"
 
                #evaluate success criteria
@@ -307,6 +310,7 @@ class SystemController:
                success = False
                #temporarily foce bottle color to blue for testing
                self.bottle_color = "blue"
+               
 
                #WE are going to the correct bin
                speed, _ = self.compute_velocity_to_pose(self.pose, self.bin_poses_tilt[self.bottle_color])
@@ -326,7 +330,7 @@ class SystemController:
                self.set_actuator("DROP")
 
                speed = [0,0,0,0,0,0]
-
+               success = True
                #Evaluate success criteria (Bottle has been dropped)
                if(success):
                    self.state = "GO_TO_NEUTRAL"
@@ -339,16 +343,15 @@ class SystemController:
                if self.bottle_color == "blue":
                    target = self.bin_throw_poses["blue"]
                    speed, _ = self.compute_velocity_to_pose(self.pose, target)
-                   if self.error[1] < 0.1: #throw before reaching the pose
-                       print("Dropping")
-                       self.set_actuator("DROP")
+                   if self.error[1] < 0.06:
+                        self.set_actuator("DROP")
                    if self.is_pose_reached():
-                       success = True
+                        success = True
 
                elif self.bottle_color == "yellow":
                     target = self.bin_throw_poses["yellow"]
                     speed, _ = self.compute_velocity_to_pose(self.pose, target)
-                    if self.error[1] < 0.1:
+                    if self.error[1] < 0.06:
                         self.set_actuator("DROP")
                     if self.is_pose_reached():
                         success = True
@@ -356,7 +359,7 @@ class SystemController:
                elif self.bottle_color == "clear":
                     target = self.bin_throw_poses["clear"]
                     speed, _ = self.compute_velocity_to_pose(self.pose, target)
-                    if self.error[1] < 0.1:
+                    if self.error[1] < 0.06:
                         self.set_actuator("DROP")
                     if self.is_pose_reached():
                         success = True
