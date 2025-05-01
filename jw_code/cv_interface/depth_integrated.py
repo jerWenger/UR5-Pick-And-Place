@@ -1,8 +1,8 @@
 import cv2
 import pyrealsense2 as rs
 import numpy as np
-#import cv_interface.bottle as bottle
-import bottle
+import cv_interface.bottle as bottle
+#import bottle
 
 class CVInterface:
     def __init__(self):
@@ -96,15 +96,15 @@ class CVInterface:
                 cv2.circle(display, (cX, cY), 7, self.display_colors[color], -1)
                 
                 theta = 0.5*np.arctan2(2*M["mu11"],M["mu20"]-M["mu02"])
-                startX = int(cX - 200 * np.cos(theta)) 
-                startY = int(cY - 200 * np.sin(theta))
+                startX = int(cX - 50 * np.cos(theta)) 
+                startY = int(cY - 50 * np.sin(theta))
                 endX = int(200 * np.cos(theta) + cX) 
                 endY = int(200 * np.sin(theta) + cY)
-                cv2.line(display, (startX, startY), (endX,endY), self.display_colors[color], 5)
+                cv2.line(display, (startX, startY), (cX,cY), self.display_colors[color], 5)
                 cv2.putText(display, f"{color} {cv2.contourArea(c)}", (cX - 20, cY - 20),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 
-            return display, cX, cY, theta
+            return display, startX, startY, theta
     
     def bottle_identification(self, prev_bottle = None, display_only = False):
         """

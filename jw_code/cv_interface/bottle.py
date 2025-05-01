@@ -55,7 +55,7 @@ class Bottle():
 
             alpha = 0.5 #lp filter constant
             new_v = (x-old_x)/dt
-            self.velocity = alpha*old_v + (1-alpha)*new_v
+            self.velocity = .4*old_v + .6*new_v
 
             beta = 0.6 #position filter constant 
             est_x = old_x + old_v*dt  #expected position based on previous velocity
@@ -64,7 +64,7 @@ class Bottle():
             self.uncertainty = diff*alpha + old.get_uncertainty()*(1-alpha)
             self.x = est_x*beta + self.x*(1-beta)
             self.y = old_y*beta + self.y*(1-beta)
-            if self.uncertainty < .01 and self.x <= .2:
+            if self.uncertainty < .01 and self.x <= .1:
                 self.status = "ready"
 
     def step_pos(self):
