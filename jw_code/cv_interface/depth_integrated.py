@@ -109,6 +109,7 @@ class CVInterface:
         """
         use camera to identify bottle location and output a display of where the bottle is
         """
+        previous_mask = None
         results = [] #list of identified bottles - (color, centerX, centerY, theta)
 
         # Wait for a new frame
@@ -117,7 +118,18 @@ class CVInterface:
 
         depth_frame = aligned_frames.get_depth_frame()
         color_frame = aligned_frames.get_color_frame()
-    
+
+        spatial = rs.spatial_filter()
+        temporal = rs.temporal_filter()
+        hole_filling = rs.hole_filling_filter()
+
+        depth_frame = spatial.process(depth_frame)
+        depth_frame = temporal.process(depth_frame)
+        depth_frame = hole_filling.process(depth_frame)
+
+        # if not depth_frame or not color_frame:
+        #     return
+
         # Convert frames to numpy arrays
         depth_image = np.asanyarray(depth_frame.get_data())
         color_image = np.asanyarray(color_frame.get_data())
@@ -146,20 +158,33 @@ class CVInterface:
 
         if not results:
             # Convert depth to meters
+
             depth_meters = depth_image * self.depth_scale
-            # Clip to range of interest (0.8m to 1.0m)
-            depth_clipped = np.clip(depth_meters, self.depth_min, self.depth_max)
-            # Normalize clipped depth to 0–255
-            depth_normalized = cv2.normalize(depth_clipped, None, 0, 255, cv2.NORM_MINMAX)
-            #depth_colormap = cv2.applyColorMap(depth_normalized.astype(np.uint8), cv2.COLORMAP_JET) #for display
-            depth_blurred = cv2.GaussianBlur(depth_normalized, (5, 5), 0)
-            mask = cv2.inRange(depth_blurred, 0, 124)
-            
-            #add opening and closing
-            contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-            if len(contours) > 0:
-                c = max(contours, key = cv2.contourArea)
-                if cv2.contourArea(c) >= 400: #experiment with minimum area
+            mask_test = (depth_meters < 0.908).astype(np.uint8)
+            mask_test_display = mask_test * 255
+            cv2.imshow('Depth > 0.9m Mask', mask_test_display)
+
+            if previous_mask is not None:
+                # Keep only pixels that are consistently present
+                mask_test_display = cv2.bitwise_and(mask_test_display, previous_mask)
+
+            # Store current mask for next frame
+            previous_mask = mask_test_display.copy()
+
+            # results = []
+            # Filter out small areas
+            contours, _ = cv2.findContours(mask_test_display, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+            contours_copy = []
+            for c in contours:
+                if cv2.contourArea(c) < 3000:
+                    cv2.drawContours(mask_test_display, [c], -1, 0, -1)  # fill with black
+                else:
+                    contours_copy.append(c)
+
+            if len(contours_copy) > 0:
+                    c = max(contours_copy, key = cv2.contourArea)
+                    
+                    # compute the center of the contour
                     display, X, Y, theta = self.find_centroid(c, display, "clear")
                     realX, realY = self.pixels_to_coordinates(X, Y)
                     results.append(("clear", realX, realY, theta, cv2.contourArea(c)))
