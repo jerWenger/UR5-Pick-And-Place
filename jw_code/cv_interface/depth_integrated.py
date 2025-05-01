@@ -103,7 +103,7 @@ class CVInterface:
 
             return display, cX, cY, theta
     
-    def bottle_identification(self):
+    def bottle_identification(self, prev_bottle = None):
         """
         use camera to identify bottle location and output a display of where the bottle is
         """
@@ -152,7 +152,7 @@ class CVInterface:
                 if cv2.contourArea(c) >= 225: #experiment with minimum area
                     display, X, Y, theta = self.find_centroid(c, display, color)
                     realX, realY = self.pixels_to_coordinates(X, Y)
-                    results.append((color, realX, realY, theta))
+                    results.append((color, realX, realY, theta, cv2.contourArea(c)))
 
         if not results:
             # Convert depth to meters
@@ -185,7 +185,8 @@ class CVInterface:
                     # compute the center of the contour
                     display, X, Y, theta = self.find_centroid(c, display, "clear")
                     realX, realY = self.pixels_to_coordinates(X, Y)
-                    results.append(("clear", realX, realY, theta))
+                    results.append(("clear", realX, realY, theta, cv2.contourArea(c)))
+            
 
         first = self.first_bottle(results)
         if first:
@@ -193,11 +194,23 @@ class CVInterface:
         else:
             return None, display
     
-    def first_bottle(self, results):
+    def best_target(self, results, prev_bottle):
         if not results:
             return ()
+        elif prev_bottle != None:
+            # sort largest to smallest, return largest contour that is within uncertainty distance
+            sizes = sorted(results, key=lambda x: x[4])
+            un = prev_bottle.get_uncertainty()
+            prev_x, prev_y = prev_bottle.get_pos()
+            for c in sizes:
+                dist = ((c[1]-prev_x)**2 + (c[2]-prev_y)**2)**.5
+                if dist < un:
+                    return c
+            # if no bottles pass, then return largest contour
+            return sizes[0]
         else:
-            return min(results, key=lambda x: x[2])
+            #just return largest contour
+            return max(results, key=lambda x: x[4])
         
 if __name__=="__main__":
     CV = CVInterface()
@@ -211,7 +224,7 @@ if __name__=="__main__":
         elif results and test_bot != None:
             results.update(test_bot, 1/30)
             test_bot = results
-            print(test_bot)
+            #print(test_bot)
         else:
             test_bot = None
         
