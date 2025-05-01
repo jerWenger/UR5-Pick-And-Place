@@ -201,20 +201,27 @@ class SystemController:
         return limited_speed
 
     def update_bottle(self, timestep = .1):
-        first, display = self.cv_input.bottle_identification()
-        if self.current_bottle == None: #if there was no bottle, create one
-            if first:
-                self.current_bottle = first
-        else: #current bottle is not None
-            # elif first and self.UR5status == "prep":
-            #     self.current_bottle = first.update(self.current_bottle)
-            #if self.current_bottle.get_status() == "ready":
-                #self.state = "MOVE_OVER_BOTTLE"
-                #print("D")
-                #self.current_bottle.step_pos()
-            #elif first:
-                #print("E")
-            self.current_bottle = first.update(self.current_bottle, timestep)
+        if self.state == "WAIT":
+            first, display = self.cv_input.bottle_identification()
+            if self.current_bottle == None: #if there was no bottle, create one
+                if first:
+                    self.current_bottle = first
+            else: #current bottle is not None
+                # elif first and self.UR5status == "prep":
+                #     self.current_bottle = first.update(self.current_bottle)
+                #if self.current_bottle.get_status() == "ready":
+                    #self.state = "MOVE_OVER_BOTTLE"
+                    #print("D")
+                    #self.current_bottle.step_pos()
+                #elif first:
+                    #print("E")
+                self.current_bottle = first.update(self.current_bottle, timestep)
+        elif self.state == "MOVE_OVER_BOTTLE" or self.state == "LOWER_ON_BOTTLE":
+            step_x = self.current_bottle.get_x() + self.current_bottle.get_velocity()*timestep
+            self.current_bottle.set_x(step_x)
+            display = self.cv_input.bottle_identification(display_only=True)
+        else:
+            display = self.cv_input.bottle_identification(display_only=True)
         return display
     
     def step(self):
@@ -249,8 +256,6 @@ class SystemController:
                 self.bottleY = round(-0.4 + self.current_bottle.get_y(), 4)
                 self.bottle_color = self.current_bottle.get_color()
                 #print(f"Bottle Color: {self.bottle_color}, BottleX: {self.bottleX}, BottleY: {self.bottleY}")
-        
-
 
         #decide if we are in joystick mode operate accordingly
         if (self.joystick_data[0] == 0):
@@ -260,7 +265,6 @@ class SystemController:
             speed[3] = self.joystick_data[4] * self.JOYSTICK_SCALE_XY# Omega velocity -1 to 1 centered at 0
         
         elif(self.joystick_data[0] == 1):
-           
            #Autonomous mode
            if self.state == "GO_TO_NEUTRAL":
                #WE are moving to neutral
@@ -283,11 +287,11 @@ class SystemController:
                speed = [0,0,0,0,0,0]
         
                #evaluate success criteria
-               if self.bottleX is not None and self.bottleY is not None:
+               #if self.bottleX is not None and self.bottleY is not None:
+               if self.current_bottle.get_status() == "ready":
                     self.state = "MOVE_OVER_BOTTLE"
            elif self.state == "MOVE_OVER_BOTTLE":
                success = False
-
                #We are moving above the bottle
                target = self.make_pose(self.bottleX, self.bottleY, self.safe_height)
                speed, _ = self.compute_velocity_to_pose(self.pose, target)
@@ -311,7 +315,6 @@ class SystemController:
                #temporarily foce bottle color to blue for testing
                self.bottle_color = "blue"
                
-
                #WE are going to the correct bin
                speed, _ = self.compute_velocity_to_pose(self.pose, self.bin_poses_tilt[self.bottle_color])
 
@@ -340,6 +343,7 @@ class SystemController:
 
                 #We are throwing the bottle
                self.bottle_color = "blue" #force color for testing
+               
                if self.bottle_color == "blue":
                    target = self.bin_throw_poses["blue"]
                    speed, _ = self.compute_velocity_to_pose(self.pose, target)

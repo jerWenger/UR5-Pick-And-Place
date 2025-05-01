@@ -105,7 +105,7 @@ class CVInterface:
 
             return display, cX, cY, theta
     
-    def bottle_identification(self, prev_bottle = None):
+    def bottle_identification(self, prev_bottle = None, display_only = False):
         """
         use camera to identify bottle location and output a display of where the bottle is
         """
@@ -138,6 +138,9 @@ class CVInterface:
         depth_image = depth_image[top:bottom, left:right] #crop image
         color_image = color_image[top:bottom, left:right]
         display = color_image.copy()
+        
+        if display_only:
+            return display
 
         hsv = cv2.cvtColor(color_image, cv2.COLOR_BGR2HSV)
 
@@ -228,8 +231,9 @@ if __name__=="__main__":
             results.update(test_bot, 1/15)
             test_bot = results
             print(test_bot)
-        else:
-            test_bot = None
+            if test_bot.get_status() == "ready":
+                cv2.imwrite("cv_interface/center.png", display)
+                break
         
         # show the image
         cv2.imshow("Output", display)

@@ -8,11 +8,7 @@ class Bottle():
         self.theta = theta
         self.velocity = 0
         self.uncertainty = 1 #in meters, ideally as low as possible
-
-        if x < .1:
-            self.status = "ready"
-        else:
-            self.status = "inFrame"
+        self.status = "inFrame"
 
     def __str__(self):
         return f'position: ({round(self.x,2)}, {round(self.y,2)}), velocity: {self.velocity} \n uncertainty: {self.uncertainty} {self.status}'
@@ -68,6 +64,8 @@ class Bottle():
             self.uncertainty = diff*alpha + old.get_uncertainty()*(1-alpha)
             self.x = est_x*beta + self.x*(1-beta)
             self.y = old_y*beta + self.y*(1-beta)
+            if self.uncertainty < .01 and self.x <= .2:
+                self.status = "ready"
 
     def step_pos(self):
         newx = self.x + self.velocity*.1
