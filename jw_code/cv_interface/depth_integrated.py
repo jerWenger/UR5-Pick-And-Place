@@ -1,7 +1,8 @@
 import cv2
 import pyrealsense2 as rs
 import numpy as np
-import cv_interface.bottle as bottle
+#import cv_interface.bottle as bottle
+import bottle
 
 class CVInterface:
     def __init__(self):
@@ -79,7 +80,8 @@ class CVInterface:
         """takes the x and y pixel indices from camera and returns
         the coordinates in ur5 frame of reference"""
         robotx = (pixely-23.5)/self.ppm
-        roboty = (pixelx+self.belt_space[0]-335)/self.ppm
+        #roboty = (pixelx+self.belt_space[0]-335)/self.ppm
+        roboty = (pixelx-195)/self.ppm
         return robotx, roboty
 
     def find_centroid(self, c, display, color):
@@ -92,21 +94,23 @@ class CVInterface:
                 # draw the contour and center of the shape on the image
                 cv2.drawContours(display, [c], -1, self.display_colors[color], 2)
                 cv2.circle(display, (cX, cY), 7, self.display_colors[color], -1)
-                cv2.putText(display, color, (cX - 20, cY - 20),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+                
                 theta = 0.5*np.arctan2(2*M["mu11"],M["mu20"]-M["mu02"])
                 startX = int(cX - 200 * np.cos(theta)) 
                 startY = int(cY - 200 * np.sin(theta))
                 endX = int(200 * np.cos(theta) + cX) 
                 endY = int(200 * np.sin(theta) + cY)
                 cv2.line(display, (startX, startY), (endX,endY), self.display_colors[color], 5)
+                cv2.putText(display, f"{color} {cv2.contourArea(c)}", (cX - 20, cY - 20),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 
             return display, cX, cY, theta
     
-    def bottle_identification(self, prev_bottle = None):
+    def bottle_identification(self, prev_bottle = None, display_only = False):
         """
         use camera to identify bottle location and output a display of where the bottle is
         """
+        previous_mask = None
         results = [] #list of identified bottles - (color, centerX, centerY, theta)
 
         # Wait for a new frame
@@ -115,7 +119,18 @@ class CVInterface:
 
         depth_frame = aligned_frames.get_depth_frame()
         color_frame = aligned_frames.get_color_frame()
-    
+
+        spatial = rs.spatial_filter()
+        temporal = rs.temporal_filter()
+        hole_filling = rs.hole_filling_filter()
+
+        depth_frame = spatial.process(depth_frame)
+        depth_frame = temporal.process(depth_frame)
+        depth_frame = hole_filling.process(depth_frame)
+
+        # if not depth_frame or not color_frame:
+        #     return
+
         # Convert frames to numpy arrays
         depth_image = np.asanyarray(depth_frame.get_data())
         color_image = np.asanyarray(color_frame.get_data())
@@ -124,6 +139,9 @@ class CVInterface:
         depth_image = depth_image[top:bottom, left:right] #crop image
         color_image = color_image[top:bottom, left:right]
         display = color_image.copy()
+
+        if display_only:
+            return display
 
         hsv = cv2.cvtColor(color_image, cv2.COLOR_BGR2HSV)
 
@@ -137,35 +155,49 @@ class CVInterface:
 
             if len(cnts) > 0:
                 c = max(cnts, key = cv2.contourArea)
-                if cv2.contourArea(c) >= 225: #experiment with minimum area
+                if cv2.contourArea(c) >= 1000: #experiment with minimum area
                     display, X, Y, theta = self.find_centroid(c, display, color)
                     realX, realY = self.pixels_to_coordinates(X, Y)
                     results.append((color, realX, realY, theta, cv2.contourArea(c)))
 
         if not results:
             # Convert depth to meters
+
             depth_meters = depth_image * self.depth_scale
-            # Clip to range of interest (0.8m to 1.0m)
-            depth_clipped = np.clip(depth_meters, self.depth_min, self.depth_max)
-            # Normalize clipped depth to 0–255
-            depth_normalized = cv2.normalize(depth_clipped, None, 0, 255, cv2.NORM_MINMAX)
-            #depth_colormap = cv2.applyColorMap(depth_normalized.astype(np.uint8), cv2.COLORMAP_JET) #for display
-            depth_blurred = cv2.GaussianBlur(depth_normalized, (5, 5), 0)
-            mask = cv2.inRange(depth_blurred, 0, 124)
-            
-            #add opening and closing
-            contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-            if len(contours) > 0:
-                c = max(contours, key = cv2.contourArea)
-                if cv2.contourArea(c) >= 225: #experiment with minimum area
+            mask_test = (depth_meters < 0.908).astype(np.uint8)
+            mask_test_display = mask_test * 255
+            cv2.imshow('Depth > 0.9m Mask', mask_test_display)
+
+            if previous_mask is not None:
+                # Keep only pixels that are consistently present
+                mask_test_display = cv2.bitwise_and(mask_test_display, previous_mask)
+
+            # Store current mask for next frame
+            previous_mask = mask_test_display.copy()
+
+            # results = []
+            # Filter out small areas
+            contours, _ = cv2.findContours(mask_test_display, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+            contours_copy = []
+            for c in contours:
+                if cv2.contourArea(c) < 3000:
+                    cv2.drawContours(mask_test_display, [c], -1, 0, -1)  # fill with black
+                else:
+                    contours_copy.append(c)
+
+            if len(contours_copy) > 0:
+                    c = max(contours_copy, key = cv2.contourArea)
+                    
+                    # compute the center of the contour
                     display, X, Y, theta = self.find_centroid(c, display, "clear")
                     realX, realY = self.pixels_to_coordinates(X, Y)
                     results.append(("clear", realX, realY, theta, cv2.contourArea(c)))
             
 
-        first = self.first_bottle(results)
-        if first:
-            return bottle.Bottle(*first), display
+        target = self.best_target(results, prev_bottle)
+        if target:
+            target = target[:4] 
+            return bottle.Bottle(*target), display
         else:
             return None, display
     
@@ -197,11 +229,12 @@ if __name__=="__main__":
         if results and test_bot == None:
             test_bot = results
         elif results and test_bot != None:
-            results.update(test_bot, 1/30)
+            results.update(test_bot, 1/15)
             test_bot = results
-            #print(test_bot)
-        else:
-            test_bot = None
+            print(test_bot)
+            if test_bot.get_status() == "ready":
+                cv2.imwrite("cv_interface/center.png", display)
+                break
         
         # show the image
         cv2.imshow("Output", display)
