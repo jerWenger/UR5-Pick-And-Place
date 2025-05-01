@@ -288,7 +288,7 @@ class SystemController:
         
                #evaluate success criteria
                #if self.bottleX is not None and self.bottleY is not None:
-               if self.current_bottle.get_status() == "ready":
+               if self.current_bottle is not None and self.current_bottle.get_status() == "ready":
                     self.state = "MOVE_OVER_BOTTLE"
            elif self.state == "MOVE_OVER_BOTTLE":
                success = False
@@ -343,7 +343,7 @@ class SystemController:
 
                 #We are throwing the bottle
                self.bottle_color = "blue" #force color for testing
-               
+
                if self.bottle_color == "blue":
                    target = self.bin_throw_poses["blue"]
                    speed, _ = self.compute_velocity_to_pose(self.pose, target)

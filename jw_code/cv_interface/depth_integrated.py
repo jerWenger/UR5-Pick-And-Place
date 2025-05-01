@@ -80,7 +80,8 @@ class CVInterface:
         """takes the x and y pixel indices from camera and returns
         the coordinates in ur5 frame of reference"""
         robotx = (pixely-23.5)/self.ppm
-        roboty = (pixelx+self.belt_space[0]-335)/self.ppm
+        #roboty = (pixelx+self.belt_space[0]-335)/self.ppm
+        roboty = (pixelx-195)/self.ppm
         return robotx, roboty
 
     def find_centroid(self, c, display, color):
@@ -138,7 +139,7 @@ class CVInterface:
         depth_image = depth_image[top:bottom, left:right] #crop image
         color_image = color_image[top:bottom, left:right]
         display = color_image.copy()
-        
+
         if display_only:
             return display
 
