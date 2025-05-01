@@ -1,10 +1,14 @@
+import math
+
 class Bottle():
     def __init__(self, color, x, y, theta):
-        self.color = color
+        self.color = color #might start using a probability vector for color
         self.x = x
         self.y = y
         self.theta = theta
         self.velocity = 0
+        self.uncertainty = 1 #in meters, ideally as low as possible
+
         if x < .1:
             self.status = "ready"
         else:
@@ -40,17 +44,30 @@ class Bottle():
     def set_velocity(self,v):
         self.velocity = v
 
+    def get_uncertainty(self):
+        return self.uncertainty
+
     def same_as(self, other):
         return other.color == self.color and abs(other.get_x() - self.x) <= 0.1 and abs(other.get_y() - self.y) <= 0.1
             
-    def update(self, old, timestep = 1/30):
+    def update(self, old, dt = 0.1):
         if self.same_as(old):
             #self bottle is kept, old bottle gets deleted
             old_x, old_y = old.get_pos()
+            old_v = old.get_velocity()
             x = self.x
+
             alpha = 0.5 #lp filter constant
-            new_v = (x-old_x)/timestep
-            self.velocity = alpha*old.get_velocity() + (1-alpha)*new_v
+            new_v = (x-old_x)/dt
+            self.velocity = alpha*old_v + (1-alpha)*new_v
+
+            beta = 0.6 #position filter constant 
+            est_x = old_x + old_v*dt  #expected position based on previous velocity
+            #absolute distance between expected position and measure position in m
+            diff = math.sqrt((est_x-self.x)**2 + (old_y-self.y)**2)
+            self.uncertainty = diff*alpha + old.get_uncertainty()*(1-alpha)
+            self.x = est_x*beta + self.x*(1-beta)
+            self.y = old_y*beta + self.y*(1-beta)
 
     def step_pos(self):
         newx = self.x + self.velocity*.1
