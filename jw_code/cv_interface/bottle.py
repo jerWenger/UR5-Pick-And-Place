@@ -15,7 +15,7 @@ class Bottle():
             self.status = "inFrame"
 
     def __str__(self):
-        return f'position: ({round(self.x,2)}, {round(self.y,2)}), velocity: {self.velocity} \n {self.status}'
+        return f'position: ({round(self.x,2)}, {round(self.y,2)}), velocity: {self.velocity} \n uncertainty: {self.uncertainty} {self.status}'
 
     def get_status(self):
         return self.status

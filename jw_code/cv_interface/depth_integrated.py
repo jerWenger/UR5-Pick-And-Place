@@ -1,7 +1,8 @@
 import cv2
 import pyrealsense2 as rs
 import numpy as np
-import cv_interface.bottle as bottle
+#import cv_interface.bottle as bottle
+import bottle
 
 class CVInterface:
     def __init__(self):
@@ -92,14 +93,15 @@ class CVInterface:
                 # draw the contour and center of the shape on the image
                 cv2.drawContours(display, [c], -1, self.display_colors[color], 2)
                 cv2.circle(display, (cX, cY), 7, self.display_colors[color], -1)
-                cv2.putText(display, color, (cX - 20, cY - 20),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+                
                 theta = 0.5*np.arctan2(2*M["mu11"],M["mu20"]-M["mu02"])
                 startX = int(cX - 200 * np.cos(theta)) 
                 startY = int(cY - 200 * np.sin(theta))
                 endX = int(200 * np.cos(theta) + cX) 
                 endY = int(200 * np.sin(theta) + cY)
                 cv2.line(display, (startX, startY), (endX,endY), self.display_colors[color], 5)
+                cv2.putText(display, f"{color} {cv2.contourArea(c)}", (cX - 20, cY - 20),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 
             return display, cX, cY, theta
     
@@ -137,7 +139,7 @@ class CVInterface:
 
             if len(cnts) > 0:
                 c = max(cnts, key = cv2.contourArea)
-                if cv2.contourArea(c) >= 225: #experiment with minimum area
+                if cv2.contourArea(c) >= 1000: #experiment with minimum area
                     display, X, Y, theta = self.find_centroid(c, display, color)
                     realX, realY = self.pixels_to_coordinates(X, Y)
                     results.append((color, realX, realY, theta, cv2.contourArea(c)))
@@ -157,15 +159,16 @@ class CVInterface:
             contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
             if len(contours) > 0:
                 c = max(contours, key = cv2.contourArea)
-                if cv2.contourArea(c) >= 225: #experiment with minimum area
+                if cv2.contourArea(c) >= 400: #experiment with minimum area
                     display, X, Y, theta = self.find_centroid(c, display, "clear")
                     realX, realY = self.pixels_to_coordinates(X, Y)
                     results.append(("clear", realX, realY, theta, cv2.contourArea(c)))
             
 
-        first = self.first_bottle(results)
-        if first:
-            return bottle.Bottle(*first), display
+        target = self.best_target(results, prev_bottle)
+        if target:
+            target = target[:4] 
+            return bottle.Bottle(*target), display
         else:
             return None, display
     
@@ -197,9 +200,9 @@ if __name__=="__main__":
         if results and test_bot == None:
             test_bot = results
         elif results and test_bot != None:
-            results.update(test_bot, 1/30)
+            results.update(test_bot, 1/15)
             test_bot = results
-            #print(test_bot)
+            print(test_bot)
         else:
             test_bot = None
         
