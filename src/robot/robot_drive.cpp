@@ -16,12 +16,20 @@ void flushSerialInput(unsigned long maxDurationMs = 10) {
     }
 }
 
+void setSystemState(bool vacuum, bool purge, bool solenoid) {
+    digitalWrite(VACUUM_PIN, vacuum ? HIGH : LOW);
+    digitalWrite(PURGE_PIN, purge ? HIGH : LOW);
+    digitalWrite(SOLENOID_PIN, solenoid ? LOW : HIGH);
+}
+
 int autonomous_pickup_state = 0;
 int autonomous_thrower_state = 0;
 bool freshLaptopData = false;
 bool laptopDataReceived = false;
 unsigned long lastFlushTime = 0;
 const unsigned long flushInterval = 30000;
+unsigned long dropModeStartTime = 0;
+bool inDropMode = false;
 
 void setup() {
 
@@ -58,64 +66,57 @@ void loop() {
 
     // Update setpoint at 50Hz
     EVERY_N_MILLIS(5) {
-        // Flag that checks if there is a new message received
+        // Track if we are currently in drop mode
+        bool currentlyInDropMode = false;
+
         if (freshWirelessData || freshLaptopData) {
-            if (dual_joystick.control_state == 0){
-                //we are in joystick mode
-                if (dual_joystick.pickup_state == 1){
-                    //pickup
-                   digitalWrite(VACUUM_PIN, HIGH);
-                   digitalWrite(PURGE_PIN, LOW);
-                   digitalWrite(SOLENOID_PIN, HIGH); 
+            if (dual_joystick.control_state == 0) {
+                // Joystick mode
+                if (dual_joystick.pickup_state == 1) {
+                    setSystemState(true, false, false);  // pickup
+                    currentlyInDropMode = false;
                 }
-                else if (dual_joystick.thrower_state == 1){
-                    //throw
-                    digitalWrite(VACUUM_PIN, LOW);
-                    digitalWrite(PURGE_PIN, HIGH);
-                    digitalWrite(SOLENOID_PIN, LOW);
+                else {
+                    // drop
+                    currentlyInDropMode = true;
                 }
-                else{
-                    //drop
-                    digitalWrite(VACUUM_PIN, LOW);
-                    digitalWrite(PURGE_PIN, HIGH);
-                    digitalWrite(SOLENOID_PIN, HIGH);
+            }
+            else if ((dual_joystick.control_state == 1) && laptopDataReceived) {
+                // Autonomous mode
+                if (autonomous_pickup_state == 1) {
+                    setSystemState(true, false, false);  // pickup
+                    currentlyInDropMode = false;
+                }
+                else {
+                    // drop
+                    currentlyInDropMode = true;
+                }
+            }
+            else {
+                // Fallback broken state — treat as drop mode
+                currentlyInDropMode = true;
+            }
+
+            if (currentlyInDropMode) {
+                if (!inDropMode) {
+                    dropModeStartTime = millis();  // just entered drop mode
+                    inDropMode = true;
                 }
 
-            }
-            else if ((dual_joystick.control_state == 1) && (laptopDataReceived)){
-                //we are in autonomous mode
-                if (autonomous_pickup_state == 1){
-                    //pickup
-                   digitalWrite(VACUUM_PIN, HIGH);
-                   digitalWrite(PURGE_PIN, LOW);
-                   digitalWrite(SOLENOID_PIN, HIGH); 
+                // Determine whether to turn off solenoid
+                if (millis() - dropModeStartTime > 2000) {
+                    setSystemState(false, false, false); // Solenoid LOW after timeout
+                } else {
+                    setSystemState(false, true, true);  // Normal drop behavior
                 }
-                else if (autonomous_thrower_state == 1){
-                    //throw
-                    digitalWrite(VACUUM_PIN, LOW);
-                    digitalWrite(PURGE_PIN, HIGH);
-                    digitalWrite(SOLENOID_PIN, LOW);
-                }
-                else{
-                    //drop
-                    digitalWrite(VACUUM_PIN, LOW);
-                    digitalWrite(PURGE_PIN, HIGH);
-                    digitalWrite(SOLENOID_PIN, HIGH);
-                }
-            }
-            else{
-                //something is broken drop state
-                digitalWrite(VACUUM_PIN, LOW);
-                digitalWrite(PURGE_PIN, HIGH);
-                digitalWrite(SOLENOID_PIN, HIGH);
+            } else {
+                inDropMode = false;  // reset drop mode timer
             }
 
             freshWirelessData = false;
             freshLaptopData = false;
-           
+            }
         }
-        // Note: Do not place a delay here.
-    }
 
     
     EVERY_N_MILLIS(20) {
