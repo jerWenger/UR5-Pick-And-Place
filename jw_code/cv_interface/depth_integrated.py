@@ -104,7 +104,7 @@ class CVInterface:
                 cv2.putText(display, f"{color} {cv2.contourArea(c)}", (cX - 20, cY - 20),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 
-            return display, startX, startY, theta
+            return display, cX, cY, theta
     
     def bottle_identification(self, prev_bottle = None, display_only = False):
         """
@@ -164,7 +164,7 @@ class CVInterface:
             # Convert depth to meters
 
             depth_meters = depth_image * self.depth_scale
-            mask_test = (depth_meters < 0.908).astype(np.uint8)
+            mask_test = (depth_meters < 0.897).astype(np.uint8)
             mask_test_display = mask_test * 255
             cv2.imshow('Depth > 0.9m Mask', mask_test_display)
 

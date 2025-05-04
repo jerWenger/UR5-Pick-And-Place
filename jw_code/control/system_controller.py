@@ -20,7 +20,7 @@ class SystemController:
         #Initialize interfaces
 
         #Connect to ESP and set joystick scalars
-        self.joystick = esp.ESPInterface('COM7') #Change this to your port
+        self.joystick = esp.ESPInterface('/dev/ttyACM0') #Change this to your port
         self.JOYSTICK_SCALE_XY = 1/3
         self.JOYSTICK_SCALE_Z = 1/5
 
@@ -77,12 +77,12 @@ class SystemController:
         self.linear_margin_fast = 0.05
         self.rotation_margin = 0.3
         self.rotation_margin_fast = 0.4
-        self.safe_height = 0.2
+        self.safe_height = 0
         self.pickup_height = -0.08
         self.last_actuator_status = "None"
         self.low_height = 0.1
 
-        self.neutral_pose = self.make_pose(0.15, -0.4, self.safe_height)
+        self.neutral_pose = self.make_pose(0.11, -0.4, self.safe_height)
 
         self.bin_poses = {
             "clear": self.make_pose(-0.42, -0.78, self.safe_height),
@@ -114,7 +114,7 @@ class SystemController:
             self.joystick.write_serial(0,1)
             self.last_actuator_status = desired_action
             
-    def compute_velocity_to_pose(self, current_pose, target_pose, max_speed=4, max_angular_speed=0.5):
+    def compute_velocity_to_pose(self, current_pose, target_pose, max_speed=2, max_angular_speed=0.5):
         """
         Compute a 6D velocity vector (vx, vy, vz, wx, wy, wz) to move from current_pose to target_pose.
         Linear and angular velocities are scaled to avoid exceeding max_speed.
@@ -165,7 +165,7 @@ class SystemController:
 
         return velocity_command.tolist(), distance
     
-    def compute_velocity_to_pose_fast(self, current_pose, target_pose, max_speed=2, max_angular_speed=0.5):
+    def compute_velocity_to_pose_fast(self, current_pose, target_pose, max_speed=1.5, max_angular_speed=0.5):
         """
         Compute a 6D velocity vector (vx, vy, vz, wx, wy, wz) to move from current_pose to target_pose.
         Linear and angular velocities are scaled to avoid exceeding max_speed.
@@ -247,8 +247,25 @@ class SystemController:
             limited_speed[0] = min(speed[0], 0)
 
         # Y axis limits
-        if self.pose[1] > -0.25:
-            limited_speed[1] = min(speed[1], 0)
+        # min y -0.2
+        # for x < 0.1 and > -0.35?
+        x = self.pose[0]
+        y = self.pose[1]
+
+        min_speed = 0
+        ylim = -0.2
+
+        if (x < 0.2) and (x > -0.4):
+            ylim = -0.27
+
+        if (x < - 0.35):
+            ylim = -0.13
+
+        if (-0.4 < x) and (x < 0.2) and (y > -0.27):
+            min_speed = -0.02
+ 
+        if (self.pose[1] > ylim):
+            limited_speed[1] = min(speed[1], min_speed)
         elif self.pose[1] < -0.85:
             limited_speed[1] = max(speed[1], 0)
 
@@ -268,14 +285,7 @@ class SystemController:
                 if first:
                     self.current_bottle = first
             elif first: #current bottle is not None
-                # elif first and self.UR5status == "prep":
-                #     self.current_bottle = first.update(self.current_bottle)
-                #if self.current_bottle.get_status() == "ready":
-                    #self.state = "MOVE_OVER_BOTTLE"
-                    #print("D")
-                    #self.current_bottle.step_pos()
-                #elif first:
-                    #print("E")
+
                 first.update(self.current_bottle, timestep)
                 self.current_bottle = first
         elif self.state == "MOVE_OVER_BOTTLE" or self.state == "LOWER_ON_BOTTLE":
@@ -287,7 +297,7 @@ class SystemController:
         return display
     
     def step(self):
-        yForce = self.rtde_r.getActualTCPForce()[2] #force of end effector
+
         """
         Perform a single control step. This method can be called repeatedly in a loop or manually.
         """
@@ -300,6 +310,9 @@ class SystemController:
 
         #get current pose
         self.pose = self.rtde_r.getActualTCPPose()
+
+        #get current force
+        yForce = self.rtde_r.getActualTCPForce()[2] #force of end effector
         
         #get joystick data
         self.got_joystick, self.joystick_data = self.joystick.read_serial()
@@ -315,13 +328,15 @@ class SystemController:
             cv2.waitKey(1)
 
             if self.current_bottle is not None:
-                self.bottleX = round(0.09 + self.current_bottle.get_x(), 4)
-                self.bottleY = round(-0.38 + self.current_bottle.get_y(), 4)
+                self.bottleX = round(0.16 + self.current_bottle.get_x(), 4)
+                self.bottleY = round(-0.36 + self.current_bottle.get_y(), 4)
                 self.bottle_color = self.current_bottle.get_color()
             
-                #print(f"Bottle Color: {self.bottle_color}, BottleX: {self.bottleX}, BottleY: {self.bottleY}")
+                print(f"Bottle Color: {self.bottle_color}, BottleX: {self.bottleX}, BottleY: {self.bottleY}, Bottle Status: {self.current_bottle.get_status()}")
             if self.joystick_data[5] == 1:
                 self.bottle_color = "SHARED"
+
+            
         #decide if we are in joystick mode operate accordingly
         if (self.joystick_data[0] == 0):
             self.state = "GO_TO_NEUTRAL"
@@ -337,14 +352,6 @@ class SystemController:
                 #WE are moving to neutral
                 target = self.neutral_pose
                 speed, _ = self.compute_velocity_to_pose(self.pose, target)
-                
-                #temporary control during auto for testing
-                #if self.joystick_data[5] == 1:
-                        #self.bottle_color = "SHARED"
-                        #self.state = "GO_TO_BIN_SHARED"
-                #else:
-                        #self.set_actuator("PICKUP")
-                        #self.state = "GO_TO_NEUTRAL"
 
                 #evaluate success criteria
                 if (self.is_pose_reached()):
@@ -378,7 +385,7 @@ class SystemController:
                 speed, _ = self.compute_velocity_to_pose(self.pose, target)
 
                 #evaluate success criteria (Bottle has been picked up / we have completely lowered)
-                if yForce > 40: #change this for force threshold in y direction (how hard pressing on bottle)
+                if yForce > 10: #change this for force threshold in y direction (how hard pressing on bottle)
                     success = True
                 if(success):
                     self.state = "GO_UP_A_BIT"
@@ -412,21 +419,6 @@ class SystemController:
                         self.state = "THROW_BOTTLE"
                     else:
                         self.state = "DROP_BOTTLE"
-            elif self.state == "GO_TO_BIN_SHARED":
-                success = False
-                #temporarily foce bottle color to blue for testing
-                #self.bottle_color = "blue"
-                
-                #WE are going to the correct bin
-                speed, _ = self.compute_velocity_to_pose(self.pose, self.bin_poses["shared"])
-
-                #Evaluate success criteria (We have made it to the bin)
-                if (self.is_pose_reached()):
-                    #force into throw for testing purposes
-                    if self.throw:
-                        self.state = "THROW_BOTTLE"
-                    else:
-                        self.state = "DROP_BOTTLE"
             elif self.state == "DROP_BOTTLE":
                 success = False
 
@@ -434,6 +426,7 @@ class SystemController:
                 self.set_actuator("DROP")
 
                 speed = [0,0,0,0,0,0]
+                time.sleep(1)
                 success = True
                 #Evaluate success criteria (Bottle has been dropped)
                 if(success):
@@ -468,9 +461,6 @@ class SystemController:
                         self.set_actuator("DROP")
                     if self.is_pose_reached():
                         success = True
-
-                #self.set_actuator("DROP")
-                #speed = [0,0,0,0,0,0]
                 
                 if(success):
                     speed = [0,0,0,0,0,0]
