@@ -64,7 +64,7 @@ class Bottle():
             self.uncertainty = diff*alpha + old.get_uncertainty()*(1-alpha)
             self.x = est_x*beta + self.x*(1-beta)
             self.y = old_y*beta + self.y*(1-beta)
-            if self.uncertainty < .02 and self.x <= .1:
+            if self.uncertainty < .15 and self.x <= .35:
                 self.status = "ready"
 
     def step_pos(self):

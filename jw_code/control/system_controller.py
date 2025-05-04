@@ -77,7 +77,7 @@ class SystemController:
         self.linear_margin_fast = 0.05
         self.rotation_margin = 0.3
         self.rotation_margin_fast = 0.4
-        self.safe_height = 0
+        self.safe_height = 0.01
         self.pickup_height = -0.08
         self.last_actuator_status = "None"
         self.low_height = 0.1
@@ -114,7 +114,7 @@ class SystemController:
             self.joystick.write_serial(0,1)
             self.last_actuator_status = desired_action
             
-    def compute_velocity_to_pose(self, current_pose, target_pose, max_speed=2, max_angular_speed=0.5):
+    def compute_velocity_to_pose(self, current_pose, target_pose, max_speed=1, max_angular_speed=0.5):
         """
         Compute a 6D velocity vector (vx, vy, vz, wx, wy, wz) to move from current_pose to target_pose.
         Linear and angular velocities are scaled to avoid exceeding max_speed.
@@ -165,7 +165,7 @@ class SystemController:
 
         return velocity_command.tolist(), distance
     
-    def compute_velocity_to_pose_fast(self, current_pose, target_pose, max_speed=1.5, max_angular_speed=0.5):
+    def compute_velocity_to_pose_fast(self, current_pose, target_pose, max_speed=1.15, max_angular_speed=0.5):
         """
         Compute a 6D velocity vector (vx, vy, vz, wx, wy, wz) to move from current_pose to target_pose.
         Linear and angular velocities are scaled to avoid exceeding max_speed.
@@ -234,48 +234,59 @@ class SystemController:
         """
         return self.error[1] <= self.linear_margin_fast
 
+
     def apply_software_limits(self, speed):
         """
         Enforces software-defined workspace limits regardless of control mode.
+        Applies soft limits to keep the end-effector in a safe region.
         """
         limited_speed = speed.copy()
 
-        # X axis limits
-        if self.pose[0] < -0.6:
+        x, y, z, _, _, _ = self.pose
+
+        # === X axis limits ===
+        if x < -0.6:
             limited_speed[0] = max(speed[0], 0)
-        elif self.pose[0] > 0.4:
+        elif x > 0.42:
             limited_speed[0] = min(speed[0], 0)
 
-        # Y axis limits
-        # min y -0.2
-        # for x < 0.1 and > -0.35?
-        x = self.pose[0]
-        y = self.pose[1]
+        # === Y axis limits (circular exclusion zone near edge) ===
+        # Exclusion zone parameters
+        exclusion_center = np.array([0.0, 0.0])  # center of the danger zone (tweak this!)
+        exclusion_radius = 0.33  # radius of the exclusion zone
 
-        min_speed = 0
-        ylim = -0.2
+        current_pos = np.array([x, y])
+        distance = np.linalg.norm(current_pos - exclusion_center)
 
-        if (x < 0.2) and (x > -0.4):
-            ylim = -0.27
+        # If we're inside the exclusion zone
+        if distance < exclusion_radius:
+            # Allow only limited motion in +Y (away from danger zone)
+            unit_vec_out = (current_pos - exclusion_center) / (distance + 1e-6)
+            projected_speed = np.dot(speed[:2], unit_vec_out)
 
-        if (x < - 0.35):
-            ylim = -0.13
+            # Smooth clamping factor: gradually increase limit as we go deeper
+            max_speed_toward_center = np.interp(distance, [0.0, exclusion_radius], [0.0, 0.02])
 
-        if (-0.4 < x) and (x < 0.2) and (y > -0.27):
-            min_speed = -0.02
- 
-        if (self.pose[1] > ylim):
-            limited_speed[1] = min(speed[1], min_speed)
-        elif self.pose[1] < -0.85:
+            # If moving deeper into the exclusion zone, clamp that component
+            if projected_speed < 0:
+                speed_out = unit_vec_out * max(projected_speed, -max_speed_toward_center)
+                limited_speed[0] = speed_out[0]
+                limited_speed[1] = speed_out[1]
+
+        # Hard Y limit beyond which we must move back in
+        if y > 0.0:
+            limited_speed[1] = min(speed[1], 0)
+        elif y < -0.85:
             limited_speed[1] = max(speed[1], 0)
 
-        # Z axis limits
-        if self.pose[2] > 0.5:
+        # === Z axis limits ===
+        if z > 0.5:
             limited_speed[2] = min(speed[2], 0)
-        elif self.pose[2] < -0.081: #change this for how low you can go
+        elif z < -0.081:
             limited_speed[2] = max(speed[2], 0)
 
         return limited_speed
+
 
     def update_bottle(self, timestep = .1):
         if self.state == "WAIT":
@@ -328,13 +339,20 @@ class SystemController:
             cv2.waitKey(1)
 
             if self.current_bottle is not None:
-                self.bottleX = round(0.16 + self.current_bottle.get_x(), 4)
+                self.bottleX = round(0.14 + self.current_bottle.get_x(), 4)
                 self.bottleY = round(-0.36 + self.current_bottle.get_y(), 4)
                 self.bottle_color = self.current_bottle.get_color()
+                if self.joystick_data[5] == 1:
+                    self.bottle_color = "SHARED"
+
+                if(self.bottleY < -0.5):
+                    self.bottleY = self.bottleY + (0.05 * self.bottleY)
+                
+                if (self.bottleX > 0.1):
+                    self.bottleX = self.bottleX - (0.01 * self.bottleX)
             
-                print(f"Bottle Color: {self.bottle_color}, BottleX: {self.bottleX}, BottleY: {self.bottleY}, Bottle Status: {self.current_bottle.get_status()}")
-            if self.joystick_data[5] == 1:
-                self.bottle_color = "SHARED"
+                print(f"Bottle Color: {self.bottle_color}, BottleX: {self.bottleX}, Bottle Certainty: {self.current_bottle.get_uncertainty()}, Bottle Status: {self.current_bottle.get_status()}")
+            
 
             
         #decide if we are in joystick mode operate accordingly
@@ -359,13 +377,13 @@ class SystemController:
             elif self.state == "WAIT":
                 #WE are waiting for the next bottle       
                 speed = [0,0,0,0,0,0]
-        
+    
                 #evaluate success criteria
                 #if self.bottleX is not None and self.bottleY is not None:
-                if (self.current_bottle != None) and (self.current_bottle.get_color() == "orange"):
+                if (self.current_bottle != None) and (self.bottle_color == "orange"):
                     self.state = "WAIT"
                     self.current_bottle = None
-                elif (self.current_bottle != None) and (self.current_bottle.get_status() == "ready"):
+                if (self.current_bottle != None) and (self.current_bottle.get_status() == "ready"):
                     self.state = "MOVE_OVER_BOTTLE"
             elif self.state == "MOVE_OVER_BOTTLE":
                 success = False
@@ -385,10 +403,14 @@ class SystemController:
                 speed, _ = self.compute_velocity_to_pose(self.pose, target)
 
                 #evaluate success criteria (Bottle has been picked up / we have completely lowered)
-                if yForce > 10: #change this for force threshold in y direction (how hard pressing on bottle)
+                if yForce > 10: #ange this for force threshold in y direction (how hard pressing on bottle)
                     success = True
                 if(success):
                     self.state = "GO_UP_A_BIT"
+
+                    if (self.bottleY > -0.2):
+                        self.state = "GO_TO_BIN"
+
             elif self.state == "GO_UP_A_BIT":
                 success = False
 
@@ -426,7 +448,7 @@ class SystemController:
                 self.set_actuator("DROP")
 
                 speed = [0,0,0,0,0,0]
-                time.sleep(1)
+                time.sleep(1.1)
                 success = True
                 #Evaluate success criteria (Bottle has been dropped)
                 if(success):

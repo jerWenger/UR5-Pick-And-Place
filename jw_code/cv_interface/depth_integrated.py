@@ -49,7 +49,7 @@ class CVInterface:
         self.kernel = np.ones((5,5),np.uint8)
         #self.pixels_per_inch = 17
         self.ppm = 671.9
-        self.belt_space = (140, 0, 530, 430) #X1, Y1, X2, Y2
+        self.belt_space = (135, 0, 530, 430) #X1, Y1, X2, Y2
 
     def get_camera_fps(self):
         return self.cap.get(cv2.CAP_PROP_FPS)
@@ -164,7 +164,7 @@ class CVInterface:
             # Convert depth to meters
 
             depth_meters = depth_image * self.depth_scale
-            mask_test = (depth_meters < 0.897).astype(np.uint8)
+            mask_test = ((depth_meters >= 0.8) & (depth_meters < 0.899)).astype(np.uint8)
             mask_test_display = mask_test * 255
             cv2.imshow('Depth > 0.9m Mask', mask_test_display)
 
