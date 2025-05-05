@@ -20,7 +20,7 @@ class SystemController:
         #Initialize interfaces
 
         #Connect to ESP and set joystick scalars
-        self.joystick = esp.ESPInterface('COM7') #Change this to your port
+        self.joystick = esp.ESPInterface('/dev/ttyACM0') #Change this to your port
         self.JOYSTICK_SCALE_XY = 1/3
         self.JOYSTICK_SCALE_Z = 1/5
 
