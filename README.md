@@ -1,5 +1,5 @@
 # UR5-Pick-And-Place
-## Team Ducklings: Corinna Berger, Allen Chen, Rian Evans, Shane Lovett, Tom Nguyen, Helena Usey, Jeremy Wenger
+## Team Ducklings: Corrina Berger, Allen Chen, Rian Evans, Shane Lovett, Tom Nguyen, Helena Usey, Jeremy Wenger
 
 ## Project Overview:
 This project was an effort to detect, segment, pickup, and sort plastic bottles on a moving conveyor belt. It leverages a UR5 robot and an Intel Realsense camera. 
@@ -44,7 +44,7 @@ Due to the linear nature of our task a finite state machine (FSM) made most sens
 ### WAIT
 - Trigger: GO_TO_NEUTRAL success
 - Task: wait for valid computer vision data
-- Success Criteria: if there is a bottle of the appropriate color and it is within the valid execution zone of the workspace
+- Success Criteria: if there is a bottle of the appropriate color, it is within the valid execution zone of the workspace, and its location has a low enough margin of error after being measured over multiple frames
 - Next State: MOVE_OVER_BOTTLE
 
 ### MOVE_OVER_BOTTLE
