@@ -148,9 +148,10 @@ class CVInterface:
         for color in self.colors:
             bounds = self.color_ranges[color]
             mask = cv2.inRange(hsv, bounds[0], bounds[1])
-        
+            
+            num_closing = 3 if color == "yellow" else 1
             #opening?
-            closing = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, self.kernel, iterations = 1)
+            closing = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, self.kernel, iterations = num_closing)
             cnts, _ = cv2.findContours(closing, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
             if len(cnts) > 0:

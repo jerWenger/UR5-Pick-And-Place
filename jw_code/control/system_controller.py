@@ -20,7 +20,7 @@ class SystemController:
         #Initialize interfaces
 
         #Connect to ESP and set joystick scalars
-        self.joystick = esp.ESPInterface('/dev/ttyACM0') #Change this to your port
+        self.joystick = esp.ESPInterface('COM7') #Change this to your port
         self.JOYSTICK_SCALE_XY = 1/3
         self.JOYSTICK_SCALE_Z = 1/5
 
@@ -86,23 +86,21 @@ class SystemController:
 
         self.bin_poses = {
             "clear": self.make_pose(-0.42, -0.78, self.safe_height),
-            "blue": self.make_pose(-0.12, -0.84, self.safe_height),
+            "blue": self.make_pose(-0.12, -0.82, self.safe_height),
             "yellow": self.make_pose(0.140, -0.84, self.safe_height),
             "SHARED": self.make_pose(0.39, -0.74, self.safe_height),
             "orange": self.make_pose(0.39, -0.74, self.safe_height),
         }
         self.bin_poses_tilt = {
-            "clear": [-0.42, -0.74, self.low_height, self.neutral_rotation[0]-0.4, self.neutral_rotation[1], self.neutral_rotation[2]],
-            "blue": self.make_pose(-0.12, -0.44, self.safe_height+0.15),
-            "yellow": [0.14, -0.74, self.low_height, self.neutral_rotation[0]-0.4, self.neutral_rotation[1], self.neutral_rotation[2]],
-            "shared": [0.39, -0.74, self.low_height, self.neutral_rotation[0]-0.4, self.neutral_rotation[1], self.neutral_rotation[2]],
+            "clear": [self.pose[0], self.pose[1], self.pose[2], self.pose[3], self.pose[4]+0.4, self.pose[5]],
+            "blue": [self.pose[0], self.pose[1], self.pose[2], self.pose[3], self.pose[4]+0.4, self.pose[5]], 
+            "yellow": [self.pose[0], self.pose[1], self.pose[2], self.pose[3], self.pose[4]+0.4, self.pose[5]],
         }
         self.bin_throw_poses = {
-            "clear": [-0.42, -0.84, self.low_height, self.neutral_rotation[0]-0.4, self.neutral_rotation[1], self.neutral_rotation[2]],
-            "blue": self.make_pose(-0.12, -0.84, self.safe_height+0.15),
-            "yellow": [0.14, -0.84, self.low_height, self.neutral_rotation[0]-0.4, self.neutral_rotation[1], self.neutral_rotation[2]],
+            "clear": self.make_pose(-0.42, -0.78, self.safe_height+0.15), #-0.42, -0.8
+            "blue": self.make_pose(-0.12, -0.82, self.safe_height+0.15), #-.012, -0.8
+            "yellow": self.make_pose(0.14, -0.82, self.safe_height+0.15), #0.14, -0.8
         }
-    
     def set_actuator(self, desired_action):
         """Wrapper for ESP To prevent sending a signal too many times"""
         if self.last_actuator_status == desired_action:
@@ -126,45 +124,76 @@ class SystemController:
         pos_error = target_pos - current_pos
         distance = np.linalg.norm(pos_error)
 
-        if distance > 1e-3:
+        if distance > 1e-2:
             linear_direction = pos_error / distance
-            linear_speed = min(distance*1.5, max_speed)
+            linear_speed = min(distance*1.75, max_speed)
             linear_velocity = linear_direction * linear_speed
         else:
             linear_velocity = np.zeros(3)
 
         # --- Angular Part ---
-        current_rot = np.array(current_pose[3:6])
-        target_rot = np.array(target_pose[3:6])
+        #current_rot = np.array(current_pose[3:6])
+        #target_rot = np.array(target_pose[3:6])
 
         # Rotation error wrapped to [-pi, pi]
-        rot_error = (target_rot - current_rot + np.pi) % (2 * np.pi) - np.pi
+        #rot_error = (target_rot - current_rot + np.pi) % (2 * np.pi) - np.pi
 
         # Derivative of rotation 
-        rot_error_derivative = (rot_error - self.last_rot_error) / self.dt
+        #rot_error_derivative = (rot_error - self.last_rot_error) / self.dt
 
         # PD control
-        Kp_ang = 1  # proportional gain
-        Kd_ang = 0.5  # derivative gain (damping)
+        #Kp_ang = 1  # proportional gain
+        #Kd_ang = 0.5  # derivative gain (damping)
 
-        angular_velocity = Kp_ang * rot_error + Kd_ang * rot_error_derivative
+        #angular_velocity = Kp_ang * rot_error + Kd_ang * rot_error_derivative
 
         # Clip angular velocity to max
-        if np.linalg.norm(angular_velocity) > max_angular_speed:
-            angular_velocity = (angular_velocity / np.linalg.norm(angular_velocity)) * max_angular_speed
+        #if np.linalg.norm(angular_velocity) > max_angular_speed:
+        #    angular_velocity = (angular_velocity / np.linalg.norm(angular_velocity)) * max_angular_speed
 
         # --- Combine
+        angular_velocity = np.zeros(3) #no angular velocity for now
         velocity_command = np.concatenate((linear_velocity, angular_velocity))
 
         #Sum errors
-        rot_error_norm = np.linalg.norm(rot_error)
+        #rot_error_norm = np.linalg.norm(rot_error)
 
         # --- Save errors for next step
-        self.last_rot_error = rot_error.copy()
+        #self.last_rot_error = rot_error.copy()
+        rot_error = np.zeros(3) #no angular velocity for now
+        rot_error_norm = 0 #no angular velocity for now
         self.error = [pos_error, distance, rot_error, rot_error_norm]
 
         return velocity_command.tolist(), distance
+    def vector_magnitude(self, delta_pose, joint = False):
+        if joint:
+            return (sum([d*d for d in delta_pose[:]]))**0.5  # Total joint position error.
+        return (sum([d*d for d in delta_pose[:3]]))**0.5  # 
     
+    def moveJ(self,target_pose):
+        move_duration = 0.1
+        acceleration = 2.0
+        tolerance = 0.005
+
+        pose = self.rtde_r.getActualQ()
+        delta_pose = [target_pose[i] - pose[i] for i in range(6)]
+
+        while self.vector_magnitude(delta_pose, joint=True) > tolerance:
+
+
+            pose = self.rtde_r.getActualQ()
+            delta_pose = [2*(target_pose[i] - pose[i]) for i in range(6)]
+
+            speed = [0, 0, 0, 0, 0, 0]
+            for i in range(6):
+                speed[i] = max(-0.25, min(0.25, delta_pose[i]))  # Clip 
+
+
+            self.rtde_c.speedJ(speed, acceleration, move_duration)
+            time.sleep(move_duration)
+
+        # Stop the robot
+        self.rtde_c.speedJ([0, 0, 0, 0, 0, 0], acceleration, 0)
     def compute_velocity_to_pose_fast(self, current_pose, target_pose, max_speed=1.15, max_angular_speed=0.5):
         """
         Compute a 6D velocity vector (vx, vy, vz, wx, wy, wz) to move from current_pose to target_pose.
@@ -339,7 +368,7 @@ class SystemController:
             cv2.waitKey(1)
 
             if self.current_bottle is not None:
-                self.bottleX = round(0.14 + self.current_bottle.get_x(), 4)
+                self.bottleX = round(0.1 + self.current_bottle.get_x(), 4) #changes around here for camera offset
                 self.bottleY = round(-0.36 + self.current_bottle.get_y(), 4)
                 self.bottle_color = self.current_bottle.get_color()
                 if self.joystick_data[5] == 1:
@@ -350,8 +379,8 @@ class SystemController:
                 
                 if (self.bottleX > 0.1):
                     self.bottleX = self.bottleX - (0.01 * self.bottleX)
-            
-                print(f"Bottle Color: {self.bottle_color}, BottleX: {self.bottleX}, Bottle Certainty: {self.current_bottle.get_uncertainty()}, Bottle Status: {self.current_bottle.get_status()}")
+                print(self.current_bottle)
+                #print(f"Bottle Color: {self.bottle_color}, BottleX: {self.bottleX}, Bottle Certainty: {self.current_bottle.get_uncertainty()}, Bottle Status: {self.current_bottle.get_status()}")
             
 
             
@@ -405,6 +434,9 @@ class SystemController:
                 #evaluate success criteria (Bottle has been picked up / we have completely lowered)
                 if yForce > 10: #ange this for force threshold in y direction (how hard pressing on bottle)
                     success = True
+                if (self.pose[2] < -0.079 and yForce < 5):
+                    self.current_bottle = None
+                    self.state = "GO_TO_NEUTRAL"
                 if(success):
                     self.state = "GO_UP_A_BIT"
 
@@ -432,9 +464,9 @@ class SystemController:
                 if (self.is_pose_reached()):
                     #force into throw for testing purposes
                     if self.bottle_color == "blue":
-                        self.throw = False
+                        self.throw = True 
                     elif self.bottle_color == "yellow":
-                        self.throw = False
+                        self.throw = True
                     elif self.bottle_color == "clear":
                         self.throw = False
                     if self.throw:
@@ -457,31 +489,52 @@ class SystemController:
             elif self.state == "THROW_BOTTLE":
                 success = False
 
-                #We are throwing the bottle
-                self.bottle_color = "blue" #force color for testing
-
                 if self.bottle_color == "blue":
-                    target = self.bin_throw_poses["blue"]
+                    target = self.bin_poses["blue"]
                     speed, _ = self.compute_velocity_to_pose_fast(self.pose, target)
                     if self.error[1] < 0.08:
+                        original_pose = self.rtde_r.getActualQ()
+                        speed = [0,0,0,-1,0,0] #[Base, Shoulder, Elbow, Wrist1, Wrist2, Wrist3]
+                        self.rtde_c.speedJ(speed, 4, .5)
+                        time.sleep(.5)
                         self.set_actuator("DROP")
-                    if self.is_pose_reached_fast():
+                        time.sleep(.5)
+                        self.rtde_c.speedJ([0,0,0,0,0,0], 2, 0.1)
+                        time.sleep(0.1)
+                        self.moveJ(original_pose)
+                        time.sleep(0.5)
                         success = True
 
                 elif self.bottle_color == "yellow":
-                    target = self.bin_throw_poses["yellow"]
+                    target = self.bin_poses["yellow"]
                     speed, _ = self.compute_velocity_to_pose(self.pose, target)
-                    if self.error[1] < 0.06:
+                    if self.error[1] < 0.08:
+                        original_pose = self.rtde_r.getActualQ()
+                        speed = [0,0,0,-1,0,0] #[Base, Shoulder, Elbow, Wrist1, Wrist2, Wrist3]
+                        self.rtde_c.speedJ(speed, 4, .5)
+                        time.sleep(.5)
                         self.set_actuator("DROP")
-                    if self.is_pose_reached():
+                        time.sleep(.5)
+                        self.rtde_c.speedJ([0,0,0,0,0,0], 2, 0.1)
+                        time.sleep(0.1)
+                        self.moveJ(original_pose)
+                        time.sleep(0.5)
                         success = True
 
                 elif self.bottle_color == "clear":
-                    target = self.bin_throw_poses["clear"]
+                    target = self.bin_poses["clear"]
                     speed, _ = self.compute_velocity_to_pose(self.pose, target)
-                    if self.error[1] < 0.06:
+                    if self.error[1] < 0.08:
+                        original_pose = self.rtde_r.getActualQ()
+                        speed = [0,0,0,-1,0,0] #[Base, Shoulder, Elbow, Wrist1, Wrist2, Wrist3]
+                        self.rtde_c.speedJ(speed, 4, .5)
+                        time.sleep(.5)
                         self.set_actuator("DROP")
-                    if self.is_pose_reached():
+                        time.sleep(.5)
+                        self.rtde_c.speedJ([0,0,0,0,0,0], 2, 0.1)
+                        time.sleep(0.1)
+                        self.moveJ(original_pose)
+                        time.sleep(0.5)
                         success = True
                 
                 if(success):
@@ -494,7 +547,7 @@ class SystemController:
         #safety check
         speed = self.apply_software_limits(speed)
 
-        self.rtde_c.speedL(speed, 2, 0) #send speed data to the UR5
+        self.rtde_c.speedL(speed, 3, 0) #send speed data to the UR5
 
         pose = [round(i,2) for i in self.pose]
         
